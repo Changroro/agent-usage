@@ -16,11 +16,15 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import AyatanaAppIndicator3, Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo
 
-from . import accounts, providers
-from .i18n import LANGUAGE, t
+from . import accounts, cache, i18n, providers
+from .i18n import t
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
-REFRESH_SECONDS = 300
+AUTOSTART = Path.home() / ".config" / "autostart" / "agent-usage.desktop"
+REFRESH_CHOICES = (2, 5, 10, 15, 30)
+DEFAULT_SETTINGS = {"refresh_minutes": 5, "display": "used", "agents": ["codex", "claude", "antigravity"], "indicators": True, "language": "system"}
+TWEEN_SECONDS = 0.5
+REVEAL_MS = 220
 SLIDE_SECONDS = 0.18
 FAN_SECONDS = 0.28
 BACKOFF_START = 300
@@ -44,7 +48,46 @@ CSS = b"""
 .separator { background: #333333; min-height: 1px; }
 .warning { color: #f5a524; }
 entry { background: #161616; color: #e8e8e8; border: 1px solid #3a3a3a; }
+.manager combobox button, .manager combobox button label { background: #2a2a2a; color: #e8e8e8; border-color: #444; box-shadow: none; }
 """
+
+
+SHOW_REMAINING = False
+LAST_VALUES = {}
+
+
+def display_value(used):
+    return 100 - used if SHOW_REMAINING else used
+
+
+def percent_text(used):
+    return f"{round(display_value(used))}%"
+
+
+class Tween:
+    """값이 바뀔 때 휙 바뀌지 않고 TWEEN_SECONDS 동안 이어서 바뀌게 한다."""
+
+    def __init__(self, value, on_change):
+        self.value = self.target = value
+        self.on_change = on_change
+        self.generation = 0
+
+    def to(self, target):
+        if target == self.target:
+            return
+        self.generation += 1
+        generation, start, started = self.generation, self.value, GLib.get_monotonic_time()
+        self.target = target
+
+        def step():
+            if generation != self.generation:
+                return False
+            progress = min(1.0, (GLib.get_monotonic_time() - started) / (TWEEN_SECONDS * 1e6))
+            self.value = start + (target - start) * (1 - (1 - progress) ** 3)
+            self.on_change(self.value)
+            return progress < 1
+
+        GLib.timeout_add(16, step)
 
 
 def used_color(used):
@@ -58,7 +101,7 @@ def countdown(moment, compact=False):
     if seconds <= 0:
         return t("초기화됨")
     days, hours, minutes = seconds // 86400, seconds % 86400 // 3600, seconds % 3600 // 60
-    if compact or LANGUAGE == "en":
+    if compact or i18n.LANGUAGE == "en":
         parts = [f"{days}d", f"{hours}h"] if days else [f"{hours}h", f"{minutes}m"] if hours else [f"{minutes}m"]
     else:
         parts = [f"{days}일", f"{hours}시간"] if days else [f"{hours}시간", f"{minutes}분"] if hours else [f"{minutes}분"]
@@ -102,16 +145,29 @@ def label(text, *classes, xalign=0.0, expand=False):
 
 
 class Bar(Gtk.DrawingArea):
-    def __init__(self, used, width=-1, height=6, gray=False):
+    def __init__(self, used, width=-1, height=6, gray=False, key=None, text=None):
+        """key 가 있으면 직전 렌더의 값에서 새 값으로 차오른다. text 라벨도 같이 바뀐다."""
         super().__init__()
-        self.used = used
         self.gray = gray
+        self.text = text
+        start = LAST_VALUES.get(key, used) if key else used
+        if key:
+            LAST_VALUES[key] = used
+        self.tween = Tween(start, self.changed)
+        self.changed(start)
+        self.tween.to(used)
         self.set_size_request(width, height)
         self.set_valign(Gtk.Align.CENTER)
         self.set_hexpand(width < 0)
         self.connect("draw", self.draw)
 
+    def changed(self, value):
+        if self.text:
+            self.text.set_text(percent_text(value))
+        self.queue_draw()
+
     def draw(self, _widget, context):
+        used = self.tween.value
         width, height = self.get_allocated_width(), self.get_allocated_height()
         radius = height / 2
 
@@ -124,9 +180,9 @@ class Bar(Gtk.DrawingArea):
         context.set_source_rgb(0.22, 0.22, 0.22)
         rounded(width)
         context.fill()
-        if self.used > 0:
-            context.set_source_rgb(*((0.56, 0.56, 0.58) if self.gray else used_color(self.used)))
-            rounded(max(height, width * self.used / 100))
+        if display_value(used) > 0:
+            context.set_source_rgb(*((0.56, 0.56, 0.58) if self.gray else used_color(used)))
+            rounded(max(height, width * display_value(used) / 100))
             context.fill()
 
 
@@ -304,8 +360,8 @@ class Bubble(Gtk.Window):
 
     def make_menu(self):
         menu = Gtk.Menu()
-        for text, callback in ((t("전체 보기"), lambda: self.app.show_all_agents()), (t("계정 연결"), lambda: self.app.open_manager()),
-                               (t("새로고침"), lambda: self.app.refresh()), (t("종료"), Gtk.main_quit)):
+        for text, callback in ((t("전체 보기"), lambda: self.app.show_all_agents()), (t("설정"), lambda: self.app.open_settings()),
+                               (t("새로고침"), lambda: self.app.refresh(force=True)), (t("종료"), Gtk.main_quit)):
             item = Gtk.MenuItem(label=text)
             item.connect("activate", lambda _item, callback=callback: callback())
             menu.append(item)
@@ -324,7 +380,7 @@ def fan_angles(bubble_center, area, radius=118, item=(32, 62, 22), count=3, spre
     turn = math.atan2(math.sin(toward - vertical), math.cos(toward - vertical))
 
     def spread_from(base):
-        return [base + math.radians((count // 2 - index) * spread) for index in range(count)]
+        return [base + math.radians(((count - 1) / 2 - index) * spread) for index in range(count)]
 
     def fits(angles):
         for angle in angles:
@@ -360,16 +416,18 @@ class Fan(Gtk.Window):
         self.motion = 0
         self.opened = False
         self.icons = {}
+        self.tweens = {}
         self.connect("draw", self.draw)
         self.connect("button-release-event", self.release)
 
     def positions(self, progress=1.0):
         center_x, center_y = self.app.bubble.center()
         area = self.app.workarea_at(center_x, center_y)
+        visible = self.app.visible_providers()
         angles = fan_angles((center_x, center_y), (area.x, area.y, area.width, area.height), self.RADIUS,
-                            (self.PILL[0] / 2, self.DISC + self.PILL[1] + 6, self.DISC), len(NAMES))
+                            (self.PILL[0] / 2, self.DISC + self.PILL[1] + 6, self.DISC), len(visible))
         result = {}
-        for index, (provider, angle) in enumerate(zip(NAMES, angles)):
+        for index, (provider, angle) in enumerate(zip(visible, angles)):
             # 항목마다 조금씩 늦게 나오게 한다.
             local = min(1.0, max(0.0, progress * 1.3 - index * 0.15))
             eased = 1 - (1 - local) ** 3
@@ -441,11 +499,15 @@ class Fan(Gtk.Window):
         context.paint()
         context.set_operator(cairo.OPERATOR_OVER)
         scale = self.get_scale_factor()
-        for provider, (x, y, shown) in self.positions(self.progress).items():
-            if shown <= 0:
+        for provider, (x, y, appear) in self.positions(self.progress).items():
+            if appear <= 0:
                 continue
             context.push_group()
             used, reset = self.app.fan_values(provider)
+            if used is not None:
+                tween = self.tweens.setdefault(provider, Tween(used, lambda _value: self.queue_draw()))
+                tween.to(used)
+                used = tween.value
             # 글자를 그린 뒤 남은 현재 점에서 arc 가 선을 이어 그리지 않게 경로를 비운다.
             context.new_path()
             context.arc(x, y, self.DISC, 0, 2 * math.pi)
@@ -459,7 +521,7 @@ class Fan(Gtk.Window):
             context.set_source_rgba(1, 1, 1, 0.1)
             context.stroke()
             if used is not None:
-                context.arc(x, y, self.DISC - 3, -math.pi / 2, -math.pi / 2 + 2 * math.pi * used / 100)
+                context.arc(x, y, self.DISC - 3, -math.pi / 2, -math.pi / 2 + 2 * math.pi * display_value(used) / 100)
                 context.set_source_rgb(*used_color(used))
                 context.stroke()
             context.save()
@@ -477,11 +539,11 @@ class Fan(Gtk.Window):
             context.close_path()
             context.set_source_rgba(0.08, 0.08, 0.08, 0.85)
             context.fill()
-            self.text(context, x, top + 3, f"{round(used)}%" if used is not None else reset, "Sans Bold 9.5", (1, 1, 1, 1))
+            self.text(context, x, top + 3, percent_text(used) if used is not None else reset, "Sans Bold 9.5", (1, 1, 1, 1))
             if used is not None:
                 self.text(context, x, top + 18, reset, "Sans 7.5", (0.7, 0.7, 0.7, 1))
             context.pop_group_to_source()
-            context.paint_with_alpha(shown)
+            context.paint_with_alpha(appear)
 
     def item_anchor(self, provider):
         # 끄는 중에는 get_position 이 늦어서 동그라미 중심에서 계산한다.
@@ -499,9 +561,17 @@ class Fan(Gtk.Window):
 class App:
     def __init__(self):
         self.state = accounts.load_state()
-        self.accounts = []
-        self.reports = {}
-        self.backoff = {}
+        self.settings = {**DEFAULT_SETTINGS, **self.state.get("settings", {})}
+        i18n.set_language(self.settings["language"])
+        self.apply_display()
+        self.reports, self.backoff = cache.load()
+        try:
+            self.accounts = accounts.list_accounts(self.state)
+        except Exception:
+            self.accounts = []
+        self.revealers = {}
+        self.revealing = None
+        self.settings_window = None
         self.ticket_lists = set()
         self.loading = False
         self.sort_by_usage = True
@@ -510,6 +580,7 @@ class App:
         self.focused = False
         self.error = None
         self.indicators = {provider: self.make_indicator(provider) for provider in NAMES}
+        self.apply_indicators()
         self.window = self.make_window()
         self.anchor = None
         self.anchor_source = None
@@ -518,8 +589,9 @@ class App:
         self.motion = 0
         self.fan = Fan(self)
         self.bubble = Bubble(self)
+        self.timer = None
+        self.schedule()
         self.refresh()
-        GLib.timeout_add_seconds(REFRESH_SECONDS, self.refresh)
         GLib.timeout_add_seconds(60, self.update_indicators)
 
     # 데이터
@@ -535,29 +607,41 @@ class App:
         chosen = self.state["selected"].get(provider)
         return next((account for account in items if account["id"] == chosen), items[0] if items else None)
 
-    def refresh(self, *_args):
+    def interval(self):
+        return self.settings["refresh_minutes"] * 60
+
+    def schedule(self):
+        if self.timer:
+            GLib.source_remove(self.timer)
+        self.timer = GLib.timeout_add_seconds(self.interval(), self.refresh)
+
+    def refresh(self, *_args, force=False):
+        """force 는 사용자가 누른 새로고침이다. 갱신 주기를 무시하지만 429 대기는 지킨다."""
         if self.loading:
             return True
         self.loading = True
         self.render()
-        threading.Thread(target=self.collect, daemon=True).start()
+        threading.Thread(target=self.collect, args=(force,), daemon=True).start()
         return True
 
-    def fetch_politely(self, account, now):
+    def fetch_politely(self, account, now, force):
         key = self.key(account)
         backoff = self.backoff.get(key)
         previous = self.reports.get(key)
         if backoff and now < backoff[0]:
             return previous or {"status": "limited", "error": t("대기"), "windows": []}
-        report, self.backoff[key] = with_backoff(previous, providers.fetch(account), backoff, now)
+        # 자동 갱신 타이머가 주기보다 조금 일찍 울려도 건너뛰지 않게 30초 여유를 둔다.
+        if not force and previous and now - previous.get("fetched_at", 0) < self.interval() - 30:
+            return previous
+        report, self.backoff[key] = with_backoff(previous, {**providers.fetch(account), "fetched_at": now}, backoff, now)
         return report
 
-    def collect(self):
+    def collect(self, force):
         try:
             found = accounts.list_accounts(self.state)
-            now = time.monotonic()
+            now = time.time()
             with ThreadPoolExecutor(max_workers=6) as pool:
-                reports = dict(zip(map(self.key, found), pool.map(lambda account: self.fetch_politely(account, now), found)))
+                reports = dict(zip(map(self.key, found), pool.map(lambda account: self.fetch_politely(account, now, force), found)))
         except Exception as error:
             GLib.idle_add(self.finish, None, None, str(error))
             return
@@ -570,6 +654,7 @@ class App:
         else:
             self.error = None
             self.accounts, self.reports = found, reports
+            cache.save(self.reports, self.backoff)
         self.render()
         return False
 
@@ -580,15 +665,31 @@ class App:
         indicator.set_icon_theme_path(str(ASSET_DIR))
         indicator.set_icon_full(ICONS[provider], NAMES[provider])
         indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
+        self.indicator_menu(indicator)
+        return indicator
+
+    def indicator_menu(self, indicator):
         menu = Gtk.Menu()
-        for text, callback in ((t("사용량 열기"), self.show_panel), (t("새로고침"), self.refresh), (t("종료"), Gtk.main_quit)):
+        for text, callback in ((t("사용량 열기"), lambda: self.show_panel()), (t("설정"), lambda: self.open_settings()),
+                               (t("새로고침"), lambda: self.refresh(force=True)), (t("종료"), Gtk.main_quit)):
             item = Gtk.MenuItem(label=text)
-            item.connect("activate", callback)
+            item.connect("activate", lambda _item, callback=callback: callback())
             menu.append(item)
         menu.show_all()
         indicator.set_menu(menu)
         indicator.set_secondary_activate_target(menu.get_children()[0])
-        return indicator
+
+    def visible_providers(self):
+        return [provider for provider in NAMES if provider in self.settings["agents"]]
+
+    def apply_indicators(self):
+        for provider, indicator in self.indicators.items():
+            active = self.settings["indicators"] and provider in self.settings["agents"]
+            indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE if active else AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
+
+    def apply_display(self):
+        global SHOW_REMAINING
+        SHOW_REMAINING = self.settings["display"] == "remaining"
 
     def indicator_text(self, provider):
         account = self.selected(provider)
@@ -598,7 +699,7 @@ class App:
         if report["status"] != "ok":
             return status_text(report)
         # 상단바는 트레이 아이콘이 많으면 라벨을 잘라서 사용률만 둔다. 남은 시간은 패널에서 보인다.
-        return f"{round(headline(report)['used'])}%"
+        return percent_text(headline(report)["used"])
 
     # 패널
 
@@ -662,7 +763,7 @@ class App:
             self.fan.open()
 
     def show_all_agents(self):
-        self.expanded = set(NAMES)
+        self.expanded = set(self.visible_providers())
         self.show_panel(source=self.bubble.anchor)
 
     def open_agent(self, provider):
@@ -737,6 +838,7 @@ class App:
             return False
         for child in self.body.get_children():
             self.body.remove(child)
+        self.revealers = {}
         header = self.header()
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         if self.error:
@@ -759,14 +861,39 @@ class App:
         fixed = sum(part.get_preferred_height()[1] for part in (header, footer))
         limit = max(200, self.workarea().height - 16 - fixed - 2)
         # 창은 최소 높이로 줄어들어서, 내용 높이(화면 한도까지)를 최소값으로 준다.
-        scroller.set_min_content_height(min(content.get_preferred_height()[1], limit))
         scroller.set_max_content_height(limit)
-        self.window.resize(440, 1)
-        self.place()
+        self.scroller, self.content, self.limit = scroller, content, limit
+        self.fit()
+        if self.revealing in self.revealers:
+            self.reveal(self.revealing, True)
+        self.revealing = None
         return False
 
+    def fit(self):
+        # 창은 최소 높이로 줄어들어서, 내용 높이(화면 한도까지)를 최소값으로 준다.
+        self.scroller.set_min_content_height(min(self.content.get_preferred_height()[1], self.limit))
+        self.window.resize(440, 1)
+        self.place()
+
+    def reveal(self, provider, opening, done=None):
+        """행 펼침·접힘. Revealer 가 높이를 바꾸는 동안 매 프레임 창 크기를 맞춘다."""
+        self.revealers[provider].set_reveal_child(opening)
+        started = GLib.get_monotonic_time()
+
+        def step():
+            if not self.window.get_visible():
+                return False
+            self.fit()
+            if GLib.get_monotonic_time() - started < (REVEAL_MS + 40) * 1000:
+                return True
+            if done:
+                done()
+            return False
+
+        GLib.timeout_add(16, step)
+
     def ordered_providers(self):
-        providers_list = list(NAMES)
+        providers_list = self.visible_providers()
         if not self.sort_by_usage:
             return sorted(providers_list, key=lambda provider: NAMES[provider])
 
@@ -794,21 +921,21 @@ class App:
         top = Gtk.Box(spacing=4, margin=14)
         top.pack_start(label(t("사용량"), "title"), False, False, 0)
         top.pack_start(label("· " + t("모든 에이전트"), "muted"), False, False, 0)
-        refresh = self.icon_button("view-refresh-symbolic", t("새로고침"), self.refresh)
+        refresh = self.icon_button("view-refresh-symbolic", t("새로고침"), lambda: self.refresh(force=True))
         refresh.set_sensitive(not self.loading)
         top.pack_start(refresh, False, False, 0)
-        top.pack_start(self.icon_button("emblem-system-symbolic", t("계정 관리"), self.open_manager), False, False, 0)
+        top.pack_start(self.icon_button("emblem-system-symbolic", t("설정"), self.open_settings), False, False, 0)
         sort = Gtk.Button(label=(t("사용량") if self.sort_by_usage else t("이름")) + "  ⇅")
         sort.get_style_context().add_class("flat")
         sort.connect("clicked", lambda *_args: self.toggle("sort_by_usage"))
         top.pack_end(sort, False, False, 0)
-        all_open = self.expanded >= set(NAMES)
+        all_open = self.expanded >= set(self.visible_providers())
         top.pack_end(self.icon_button("pan-up-symbolic" if all_open else "pan-down-symbolic", t("모두 접기") if all_open else t("모두 펼치기"),
                                       lambda: self.set_detailed(not all_open)), False, False, 0)
         return top
 
     def set_detailed(self, detailed):
-        self.expanded = set(NAMES) if detailed else set()
+        self.expanded = set(self.visible_providers()) if detailed else set()
         GLib.idle_add(self.render)
 
     def toggle(self, name):
@@ -834,20 +961,32 @@ class App:
         else:
             top = headline(report)
             row.pack_start(label(countdown(top["reset_at"]), "muted", "small", xalign=1.0), False, False, 0)
-            row.pack_start(Bar(top["used"], width=46, height=5, gray=True), False, False, 0)
-            percent = label(f"{round(top['used'])}%", "percent", xalign=1.0)
+            percent = label("", "percent", xalign=1.0)
             percent.set_width_chars(5)
+            row.pack_start(Bar(top["used"], width=46, height=5, gray=True, key=(*self.key(account), "row"), text=percent), False, False, 0)
             row.pack_start(percent, False, False, 0)
         row.pack_end(Gtk.Image.new_from_icon_name("pan-down-symbolic" if expanded else "pan-end-symbolic", Gtk.IconSize.MENU), False, False, 0)
         section.pack_start(clickable(row, lambda: self.toggle_provider(provider), *(["selected"] if expanded else [])), False, False, 0)
         section.set_margin_start(6)
         section.set_margin_end(6)
         if expanded and account:
-            section.pack_start(self.detail(provider, account, report), False, False, 0)
+            revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN, transition_duration=REVEAL_MS)
+            revealer.add(self.detail(provider, account, report))
+            # 방금 누른 행만 접힌 채로 만들어 두고 render 끝에서 펼친다. 나머지는 바로 펼친 채로 둔다.
+            revealer.set_reveal_child(provider != self.revealing)
+            self.revealers[provider] = revealer
+            section.pack_start(revealer, False, False, 0)
         return section
 
     def toggle_provider(self, provider):
-        self.expanded ^= {provider}
+        if provider in self.expanded and provider in self.revealers:
+            def collapsed():
+                self.expanded.discard(provider)
+                self.render()
+            self.reveal(provider, False, collapsed)
+            return
+        self.expanded.add(provider)
+        self.revealing = provider
         GLib.idle_add(self.render)
 
     def detail(self, provider, account, report):
@@ -867,7 +1006,7 @@ class App:
                 card.pack_start(again, False, False, 0)
         else:
             for window in [*report["windows"], *([report["image"]] if report.get("image") else [])]:
-                card.pack_start(self.window_meter(window), False, False, 0)
+                card.pack_start(self.window_meter(window, (*self.key(account), window["label"])), False, False, 0)
             if report.get("image_error"):
                 card.pack_start(label(t("이미지 한도: {v0}", v0=report["image_error"]), "muted", "small"), False, False, 0)
             if provider == "codex":
@@ -876,16 +1015,17 @@ class App:
         box.pack_start(self.account_list(provider, account), False, False, 0)
         return box
 
-    def window_meter(self, window):
+    def window_meter(self, window, key):
         meter = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         line = Gtk.Box(spacing=6)
         reset = countdown(window["reset_at"])
         line.pack_start(label(window["label"], "percent"), False, False, 0)
         if reset:
             line.pack_start(label("· " + (reset if reset == t("초기화됨") else t("{v0} 후 초기화", v0=reset)), "muted", "small"), False, False, 0)
-        line.pack_end(label(f"{round(window['used'])}%", "percent"), False, False, 0)
+        percent = label("", "percent")
+        line.pack_end(percent, False, False, 0)
         meter.pack_start(line, False, False, 0)
-        meter.pack_start(Bar(window["used"]), False, False, 0)
+        meter.pack_start(Bar(window["used"], key=key, text=percent), False, False, 0)
         return meter
 
     def reset_credits(self, account, credits):
@@ -943,7 +1083,7 @@ class App:
             except Exception as error:
                 code = str(error)
             GLib.idle_add(self.notify, t("재설정 결과: {v0}", v0=code))
-            GLib.idle_add(lambda: self.refresh() and False)
+            GLib.idle_add(lambda: self.refresh(force=True) and False)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -967,8 +1107,9 @@ class App:
             row.pack_start(label(account["label"], expand=True), True, True, 0)
             if report and report["status"] == "ok":
                 top = headline(report)
-                row.pack_start(Bar(top["used"], width=48, height=5), False, False, 0)
-                row.pack_start(label(f"{round(top['used'])}%", xalign=1.0), False, False, 0)
+                percent = label("", xalign=1.0)
+                row.pack_start(Bar(top["used"], width=48, height=5, key=(*self.key(account), "account"), text=percent), False, False, 0)
+                row.pack_start(percent, False, False, 0)
             elif report:
                 row.pack_start(label(status_text(report), "muted", "small"), False, False, 0)
             box.pack_start(clickable(row, lambda account=account: self.select(provider, account), *(["selected"] if account is chosen else []), horizontal=8, vertical=7), False, False, 0)
@@ -999,7 +1140,7 @@ class App:
         self.logins.remove(session)
         done, last = session.result()
         self.error = None if done else t("{v0} 로그인 실패: {v1}", v0=NAMES[session.provider], v1=last)
-        self.refresh()
+        self.refresh(force=True)
         return False
 
     def login_block(self, session):
@@ -1031,15 +1172,32 @@ class App:
         box.pack_start(actions, False, False, 0)
         return box
 
-    def open_manager(self):
+    def open_settings(self):
         self.close_panel()
-        manager = Gtk.Window(title=t("계정 관리"))
-        manager.set_default_size(480, -1)
+        if self.settings_window:
+            self.settings_window.destroy()
+        manager = self.settings_window = Gtk.Window(title=t("설정"))
+        manager.connect("destroy", lambda window: self.settings_window is window and setattr(self, "settings_window", None))
+        manager.set_default_size(500, -1)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=16)
+        outer.pack_start(label(t("표시"), "title"), False, False, 0)
+        outer.pack_start(self.choice_row(t("언어"), "language", (("system", t("시스템")), ("ko", "한국어"), ("en", "English"))), False, False, 0)
+        outer.pack_start(self.choice_row(t("사용량 표시"), "display", (("used", t("사용률")), ("remaining", t("남은 양")))), False, False, 0)
+        outer.pack_start(self.switch_row(t("상단바 아이콘"), self.settings["indicators"], lambda on: self.change("indicators", on)), False, False, 0)
+        outer.pack_start(self.separator(), False, False, 0)
+        outer.pack_start(label(t("동작"), "title"), False, False, 0)
+        outer.pack_start(self.choice_row(t("갱신 주기"), "refresh_minutes", tuple((minutes, t("{v0}분", v0=minutes)) for minutes in REFRESH_CHOICES)), False, False, 0)
+        outer.pack_start(self.switch_row(t("로그인 시 자동 실행"), AUTOSTART.exists(), self.set_autostart), False, False, 0)
+        outer.pack_start(self.separator(), False, False, 0)
+        outer.pack_start(label(t("에이전트와 계정"), "title"), False, False, 0)
         for provider in NAMES:
             head = Gtk.Box(spacing=8)
             head.pack_start(icon(provider, 18), False, False, 0)
-            head.pack_start(label(NAMES[provider], "title"), True, True, 0)
+            head.pack_start(label(NAMES[provider], "percent"), True, True, 0)
+            switch = Gtk.Switch(active=provider in self.settings["agents"], valign=Gtk.Align.CENTER)
+            switch.set_tooltip_text(t("표시"))
+            switch.connect("notify::active", lambda switch, _param, provider=provider: self.show_agent(provider, switch.get_active()))
+            head.pack_end(switch, False, False, 0)
             outer.pack_start(head, False, False, 0)
             for account in self.provider_accounts(provider):
                 outer.pack_start(self.manager_row(manager, account), False, False, 0)
@@ -1051,12 +1209,60 @@ class App:
             button.connect("clicked", lambda _button, provider=provider, name=name: self.add_account(manager, provider, name.get_text().strip()))
             add.pack_start(button, False, False, 0)
             outer.pack_start(add, False, False, 0)
-            outer.pack_start(self.separator(), False, False, 0)
         frame = Gtk.Box()
         frame.get_style_context().add_class("manager")
         frame.pack_start(outer, True, True, 0)
         manager.add(frame)
         manager.show_all()
+
+    def switch_row(self, text, active, callback):
+        row = Gtk.Box(spacing=8)
+        row.pack_start(label(text), True, True, 0)
+        switch = Gtk.Switch(active=active, valign=Gtk.Align.CENTER)
+        switch.connect("notify::active", lambda switch, _param: callback(switch.get_active()))
+        row.pack_end(switch, False, False, 0)
+        return row
+
+    def choice_row(self, text, name, choices):
+        row = Gtk.Box(spacing=8)
+        row.pack_start(label(text), True, True, 0)
+        combo = Gtk.ComboBoxText()
+        for value, title in choices:
+            combo.append(str(value), title)
+        combo.set_active_id(str(self.settings[name]))
+        values = {str(value): value for value, _title in choices}
+        combo.connect("changed", lambda combo: self.change(name, values[combo.get_active_id()]))
+        row.pack_end(combo, False, False, 0)
+        return row
+
+    def change(self, name, value):
+        self.settings[name] = value
+        self.state["settings"] = self.settings
+        accounts.save_state(self.state)
+        if name == "language":
+            i18n.set_language(value)
+            self.bubble.menu = self.bubble.make_menu()
+            for indicator in self.indicators.values():
+                self.indicator_menu(indicator)
+            GLib.idle_add(lambda: self.open_settings() or False)
+        elif name == "refresh_minutes":
+            self.schedule()
+        self.apply_display()
+        self.apply_indicators()
+        if self.fan.opened:
+            self.fan.follow()
+        self.render()
+
+    def show_agent(self, provider, visible):
+        agents = [name for name in NAMES if name in self.settings["agents"] or (visible and name == provider)]
+        self.change("agents", [name for name in agents if visible or name != provider])
+
+    def set_autostart(self, enabled):
+        if enabled:
+            AUTOSTART.parent.mkdir(parents=True, exist_ok=True)
+            AUTOSTART.write_text(f"[Desktop Entry]\nType=Application\nName=agent-usage\nExec={ASSET_DIR.parent / 'bin' / 'agent-usage'}\n")
+        elif AUTOSTART.exists():
+            AUTOSTART.unlink()
 
     def manager_row(self, manager, account):
         row = Gtk.Box(spacing=8)

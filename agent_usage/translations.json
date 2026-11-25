@@ -11,7 +11,6 @@
   "{v0} 후 만료됨": "Expires in {v0}",
   "{v0} 후 초기화": "Resets in {v0}",
   "계정": "Accounts",
-  "계정 관리": "Manage accounts",
   "계정 추가": "Add account",
   "다시 로그인": "Sign in again",
   "로그인 만료": "Signed out",
@@ -52,6 +51,17 @@
   "모두 펼치기": "Expand all",
   "모두 접기": "Collapse all",
   "전체 보기": "Show all",
-  "계정 연결": "Connect accounts",
-  "대기": "Waiting"
+  "대기": "Waiting",
+  "설정": "Settings",
+  "표시": "Display",
+  "언어": "Language",
+  "사용량 표시": "Show usage as",
+  "사용률": "Used",
+  "남은 양": "Remaining",
+  "상단바 아이콘": "Top bar icons",
+  "동작": "Behavior",
+  "갱신 주기": "Refresh every",
+  "{v0}분": "{v0} min",
+  "로그인 시 자동 실행": "Start on login",
+  "에이전트와 계정": "Agents and accounts"
 }

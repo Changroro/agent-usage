@@ -37,6 +37,9 @@ class PlacementTest(unittest.TestCase):
             x = 5708 + 118 * math.cos(math.radians(angle))
             self.assertLessEqual(x + 32, 3840 + 1920)
 
+    def test_two_agents_spread_evenly_around_top(self):
+        self.assertEqual([round(math.degrees(angle), 1) for angle in fan_angles((4800, 1000), AREA, count=2)], [117.5, 62.5])
+
     def test_fan_opens_downward_near_top(self):
         self.assertEqual(round(math.degrees(fan_angles((4800, 60), AREA)[1])), -90)
 

@@ -17,7 +17,9 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 - Codex extras: rate limit reset credits (click the tickets for each expiry date) and the 24-hour image generation limit.
 - Several accounts per agent. Add or sign in again from the panel, and the sign-in page opens in your browser.
 - Top bar indicators with the current usage of each agent.
-- Polls every 5 minutes. When an agent's usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
+- Polls every 5 minutes by default. The last values are cached, so they show right away after a restart without asking the APIs again. When an agent's usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
+- Settings for language, used or remaining display, top bar icons, refresh interval, start on login and which agents to show.
+- Values fill in smoothly when they change, and rows slide open.
 
 ## Installation
 
@@ -48,7 +50,7 @@ The widget reads the sign-in of each agent's own CLI. Sign in once with `codex l
 
 **5. Start on login (optional)**
 
-Run this inside the `agent-usage` folder.
+Turn on *Start on login* in the settings, or run this inside the `agent-usage` folder.
 
 ```bash
 mkdir -p ~/.config/autostart
@@ -62,8 +64,8 @@ printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-u
 | Click the bubble | Fan out the agent bubbles, click again to fold |
 | Drag the bubble | Move it. The fan and the open panel follow, and the position is remembered |
 | Click an agent bubble | Open that agent's detail panel |
-| Right-click the bubble | Show all, connect accounts, refresh, quit |
-| Gear icon in the panel | Add, rename, sign in again or remove accounts |
+| Right-click the bubble | Show all, settings, refresh, quit |
+| Gear icon in the panel | Settings: display, refresh interval, start on login, agents and accounts |
 
 `./bin/agent-usage --open` also opens the panel right away. The language follows the system, and `AGENT_USAGE_LANGUAGE=ko` or `en` overrides it.
 
