@@ -1302,6 +1302,13 @@ class App:
         frame.get_style_context().add_class("manager")
         frame.pack_start(outer, True, True, 0)
         manager.add(frame)
+        # 상세 패널처럼 펼친 동그라미 전체(접혀 있으면 오브) 바깥에 연다. 지정하지 않으면 GNOME 이 빈자리를 골라 좌상단에 놓는다.
+        anchor = self.fan.anchor() if self.fan.opened else self.bubble.anchor()
+        area = self.workarea_at(*anchor[:2])
+        frame.show_all()
+        size = manager.get_preferred_size()[1]
+        width = max(size.width, manager.get_default_size()[0])
+        manager.move(*panel_origin(anchor, (width, size.height), (area.x, area.y, area.width, area.height)))
         manager.show_all()
 
     def switch_row(self, text, active, callback):
