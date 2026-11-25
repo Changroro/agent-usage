@@ -4,7 +4,6 @@
   "Codex 리셋권 응답 형식이 올바르지 않습니다.": "Unexpected Codex reset credit response.",
   "Codex 사용량 정보가 없습니다.": "Codex returned no usage data.",
   "Codex 사용량 창이 없습니다.": "Codex returned no usage windows.",
-  "Orca 계정은 Orca에서 다시 로그인하세요.": "Sign in to Orca accounts again from Orca.",
   "agy 사용량 응답을 해석하지 못했습니다: {v0}": "Could not read agy usage output: {v0}",
   "{v0} 로그인 실패: {v1}": "{v0} sign-in failed: {v1}",
   "{v0} 로그인 중 · {v1}": "Signing in to {v0} · {v1}",

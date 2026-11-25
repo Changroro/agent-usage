@@ -1046,12 +1046,11 @@ class App:
             card.pack_start(label(t("불러오는 중…"), "muted"), False, False, 0)
         elif report["status"] != "ok":
             card.pack_start(label(report["error"], "warning"), False, False, 0)
-            if account["source"] != "orca":
-                again = Gtk.Button(label=t("다시 로그인"))
-                again.get_style_context().add_class("pill")
-                again.set_halign(Gtk.Align.START)
-                again.connect("clicked", lambda *_args: self.login(lambda: accounts.relogin(account)))
-                card.pack_start(again, False, False, 0)
+            again = Gtk.Button(label=t("다시 로그인"))
+            again.get_style_context().add_class("pill")
+            again.set_halign(Gtk.Align.START)
+            again.connect("clicked", lambda *_args: self.login(lambda: accounts.relogin(account)))
+            card.pack_start(again, False, False, 0)
         else:
             for window in [*report["windows"], *([report["image"]] if report.get("image") else [])]:
                 card.pack_start(self.window_meter(window, (*self.key(account), window["label"])), False, False, 0)
@@ -1322,13 +1321,11 @@ class App:
             save.connect("clicked", lambda *_args: (accounts.rename_account(self.state, account["id"], name.get_text().strip()), self.refresh()))
             row.pack_start(save, False, False, 0)
         else:
-            source = t("시스템") if account["source"] == "system" else "Orca"
-            row.pack_start(label(f"{account['label']}  ·  {source}", expand=True), True, True, 0)
-        if account["source"] != "orca":
-            again = Gtk.Button(label=t("다시 로그인"))
-            again.get_style_context().add_class("pill")
-            again.connect("clicked", lambda *_args: self.login(lambda: accounts.relogin(account)))
-            row.pack_start(again, False, False, 0)
+            row.pack_start(label(f"{account['label']}  ·  {t('시스템')}", expand=True), True, True, 0)
+        again = Gtk.Button(label=t("다시 로그인"))
+        again.get_style_context().add_class("pill")
+        again.connect("clicked", lambda *_args: self.login(lambda: accounts.relogin(account)))
+        row.pack_start(again, False, False, 0)
         if account["source"] == "own":
             remove = Gtk.Button(label=t("삭제"))
             remove.get_style_context().add_class("pill")

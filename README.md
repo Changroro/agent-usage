@@ -12,50 +12,42 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 
 ## Features
 
+**All agents**
+
 - A floating energy orb that stays on top, slowly turning while its colors drift. Click it to fan out one bubble per agent with its usage and time to reset.
-- Click an agent bubble for its detail panel: 5-hour, weekly and per-model windows.
-- Codex extras: rate limit reset credits (click the tickets for each expiry date) and the 24-hour image generation limit.
+- Click an agent bubble for its detail panel with every usage window and the plan name.
 - Several accounts per agent. Add or sign in again from the panel, and the sign-in page opens in your browser.
 - Top bar indicators with the current usage of each agent.
-- Polls every 5 minutes by default. The last values are cached, so they show right away after a restart without asking the APIs again. When an agent's usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
+- Polls every 5 minutes by default. The last values are cached, so they show right away after a restart. When a usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
 - Settings for language, used or remaining display, top bar icons, refresh interval, start on login and which agents to show.
 - Values fill in smoothly when they change, and rows slide open.
+
+**Codex**
+
+- 5-hour and weekly limits, plus any extra per-model limits on the account.
+- Rate limit reset credits: the count, each ticket's expiry date, and *Reset now*. **Reset now uses a real credit**, so it asks first with Cancel as the default.
+- The 24-hour image generation limit.
+
+**Claude**
+
+- 5-hour and weekly limits.
+- Per-model weekly limits such as Opus or Sonnet.
+
+**Antigravity**
+
+- 5-hour and weekly limits for each model group.
 
 ## Installation
 
 Tested on Ubuntu 24.04 with GNOME on X11.
 
-**1. Install the system packages**
-
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator
+curl -fsSL https://raw.githubusercontent.com/Changroro/agent-usage/main/install.sh | bash
 ```
 
-**2. Get the widget**
+This installs the system packages it needs (asks for your sudo password if any are missing), puts the widget in `~/.local/share/agent-usage`, and adds the `agent-usage` command and an app menu entry. Run the same line again to update. Add `-s -- --uninstall` after `bash` to remove it.
 
-```bash
-git clone https://github.com/Changroro/agent-usage.git
-cd agent-usage
-```
-
-**3. Sign in to the agents you use**
-
-The widget reads the sign-in of each agent's own CLI. Sign in once with `codex login`, `claude` or `agy`. You can add more accounts later from the widget.
-
-**4. Run**
-
-```bash
-./bin/agent-usage
-```
-
-**5. Start on login (optional)**
-
-Turn on *Start on login* in the settings, or run this inside the `agent-usage` folder.
-
-```bash
-mkdir -p ~/.config/autostart
-printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-usage\n' "$PWD" > ~/.config/autostart/agent-usage.desktop
-```
+Then sign in to the agents you use with their own CLI (`codex login`, `claude`, `agy`) and run `agent-usage`. Turn on *Start on login* in the settings to keep it running.
 
 ## Usage
 
@@ -67,21 +59,19 @@ printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-u
 | Right-click the bubble | Show all, settings, refresh, quit |
 | Gear icon in the panel | Settings: display, refresh interval, start on login, agents and accounts |
 
-`./bin/agent-usage --open` also opens the panel right away. The language follows the system, and `AGENT_USAGE_LANGUAGE=ko` or `en` overrides it.
+`agent-usage --open` also opens the panel right away. The language follows the system, and `AGENT_USAGE_LANGUAGE=ko` or `en` overrides it.
 
 ## Where the data comes from
 
 | Agent | Accounts | Usage |
 |---|---|---|
-| Codex | `~/.codex`, [Orca](https://github.com/stablyai/orca) accounts, accounts added here (`CODEX_HOME`) | `wham/usage`, reset credit API, image limit headers |
+| Codex | `~/.codex`, accounts added here (`CODEX_HOME`) | `wham/usage`, reset credit API, image limit headers |
 | Claude | `~/.claude`, accounts added here (`CLAUDE_CONFIG_DIR`) | `api/oauth/usage` |
 | Antigravity | the system keyring account, accounts added here (separate `HOME`, file token storage) | `agy -p /usage` |
 
 Tokens are only sent to each agent's own API. The widget never refreshes tokens itself and leaves that to each CLI. Added accounts and the bubble position are stored in `~/.config/agent-usage/`.
 
 The image limit is read from the headers of an image request with an empty prompt. The server rejects it, so no image is generated.
-
-**Reset now uses a real Codex reset credit.** It asks for confirmation first, with Cancel as the default.
 
 ## Development
 

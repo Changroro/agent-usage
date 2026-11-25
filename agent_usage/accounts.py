@@ -11,7 +11,6 @@ from .i18n import t
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-usage"
 STATE_PATH = CONFIG_DIR / "accounts.json"
-ORCA_CODEX = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "orca" / "codex-accounts"
 PROVIDERS = ("codex", "claude", "antigravity")
 URL = re.compile(r"https://[^\s\x1b\x07]+")
 ANSI = re.compile(r"\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z]")
@@ -33,9 +32,6 @@ def save_state(state):
 def system_accounts():
     codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     yield {"provider": "codex", "id": "system", "label": t("시스템 기본값"), "home": str(codex_home), "source": "system"}
-    for home in sorted(ORCA_CODEX.glob("*/home")):
-        if (home / "auth.json").exists():
-            yield {"provider": "codex", "id": f"orca:{home.parent.name}", "label": None, "home": str(home), "source": "orca"}
     yield {"provider": "claude", "id": "system", "label": t("시스템 기본값"), "home": os.environ.get("CLAUDE_CONFIG_DIR"), "source": "system"}
     yield {"provider": "antigravity", "id": "system", "label": t("시스템 기본값"), "home": None, "source": "system"}
 
@@ -121,8 +117,6 @@ def add_account(state, provider, label):
 
 
 def relogin(account):
-    if account["source"] == "orca":
-        raise RuntimeError(t("Orca 계정은 Orca에서 다시 로그인하세요."))
     return start_login(account["provider"], account["home"], account["label"])
 
 

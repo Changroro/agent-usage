@@ -12,50 +12,42 @@ AI 코딩 에이전트의 사용량을 화면에 떠 있는 동그라미로 보�
 
 ## 기능
 
+**공통**
+
 - 항상 위에 떠 있는 에너지 오브가 천천히 돌며 색이 은은하게 바뀝니다. 누르면 에이전트별 동그라미가 부채꼴로 펼쳐지고, 위에 사용률과 초기화까지 남은 시간이 표시됩니다.
-- 에이전트 동그라미를 누르면 5시간·주간·모델별 사용량 상세 패널이 열립니다.
-- Codex는 리셋권(티켓을 누르면 장마다 만료일)과 이미지 생성 24시간 한도도 보여 줍니다.
+- 에이전트 동그라미를 누르면 모든 사용량 한도와 요금제 이름이 담긴 상세 패널이 열립니다.
 - 에이전트마다 계정을 여러 개 등록할 수 있습니다. 계정 추가나 다시 로그인을 누르면 브라우저에서 로그인 페이지가 열립니다.
 - 상단바에도 에이전트별 사용률이 표시됩니다.
-- 기본 5분마다 갱신합니다. 마지막 값을 저장해서 다시 켜도 API를 다시 부르지 않고 바로 보여 줍니다. 사용량 API가 요청이 잦다고 거절하면 5분에서 30분까지 쉬면서 마지막 값을 보여 줍니다.
+- 기본 5분마다 갱신합니다. 마지막 값을 저장해서 다시 켜도 바로 보여 줍니다. 사용량 API가 요청이 잦다고 거절하면 5분에서 30분까지 쉬면서 마지막 값을 보여 줍니다.
 - 설정에서 언어, 사용률/남은 양 표시, 상단바 아이콘, 갱신 주기, 로그인 시 자동 실행, 보여 줄 에이전트를 고를 수 있습니다.
 - 값이 바뀌면 이어서 차오르고, 행은 미끄러지듯 펼쳐집니다.
+
+**Codex**
+
+- 5시간·주간 한도와, 계정에 있으면 모델별 추가 한도.
+- 리셋권: 남은 장수, 장마다 만료일, *지금 재설정*. **지금 재설정은 리셋권을 실제로 1회 씁니다.** 누르면 확인 창이 먼저 뜨고 기본 선택은 취소입니다.
+- 이미지 생성 24시간 한도.
+
+**Claude**
+
+- 5시간·주간 한도.
+- Opus, Sonnet 같은 모델별 주간 한도.
+
+**Antigravity**
+
+- 모델 그룹별 5시간·주간 한도.
 
 ## 설치
 
 Ubuntu 24.04 GNOME X11에서 확인했습니다.
 
-**1. 시스템 패키지 설치**
-
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator
+curl -fsSL https://raw.githubusercontent.com/Changroro/agent-usage/main/install.sh | bash
 ```
 
-**2. 위젯 받기**
+필요한 시스템 패키지를 설치하고(없는 게 있으면 sudo 비밀번호를 묻습니다), 위젯을 `~/.local/share/agent-usage`에 넣고, `agent-usage` 명령과 앱 메뉴 항목을 만듭니다. 같은 줄을 다시 실행하면 업데이트됩니다. 지우려면 `bash` 뒤에 `-s -- --uninstall`을 붙입니다.
 
-```bash
-git clone https://github.com/Changroro/agent-usage.git
-cd agent-usage
-```
-
-**3. 쓰는 에이전트에 로그인**
-
-위젯은 각 에이전트 CLI의 로그인 정보를 읽습니다. `codex login`, `claude`, `agy` 중 쓰는 것으로 한 번 로그인해 두세요. 계정은 나중에 위젯에서 더 추가할 수 있습니다.
-
-**4. 실행**
-
-```bash
-./bin/agent-usage
-```
-
-**5. 로그인할 때 자동 실행 (선택)**
-
-설정에서 *로그인 시 자동 실행*을 켜거나, `agent-usage` 폴더 안에서 아래를 실행합니다.
-
-```bash
-mkdir -p ~/.config/autostart
-printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-usage\n' "$PWD" > ~/.config/autostart/agent-usage.desktop
-```
+그다음 쓰는 에이전트에 각 CLI로 로그인하고(`codex login`, `claude`, `agy`) `agent-usage`를 실행합니다. 계속 켜 두려면 설정에서 *로그인 시 자동 실행*을 켭니다.
 
 ## 사용법
 
@@ -67,21 +59,19 @@ printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-u
 | 동그라미 오른쪽 클릭 | 전체 보기, 설정, 새로고침, 종료 |
 | 패널의 톱니바퀴 | 설정: 표시, 갱신 주기, 자동 실행, 에이전트와 계정 |
 
-`./bin/agent-usage --open`으로 실행하면 패널도 바로 열립니다. 언어는 시스템 언어를 따르고 `AGENT_USAGE_LANGUAGE=ko` 또는 `en`으로 바꿀 수 있습니다.
+`agent-usage --open`으로 실행하면 패널도 바로 열립니다. 언어는 시스템 언어를 따르고 `AGENT_USAGE_LANGUAGE=ko` 또는 `en`으로 바꿀 수 있습니다.
 
 ## 데이터를 읽는 곳
 
 | 에이전트 | 계정 | 사용량 |
 |---|---|---|
-| Codex | `~/.codex`, [Orca](https://github.com/stablyai/orca) 계정, 여기서 추가한 계정(`CODEX_HOME`) | `wham/usage`, 리셋권 API, 이미지 한도 헤더 |
+| Codex | `~/.codex`, 여기서 추가한 계정(`CODEX_HOME`) | `wham/usage`, 리셋권 API, 이미지 한도 헤더 |
 | Claude | `~/.claude`, 여기서 추가한 계정(`CLAUDE_CONFIG_DIR`) | `api/oauth/usage` |
 | Antigravity | 시스템 키링 계정, 여기서 추가한 계정(별도 `HOME`, 파일 토큰 저장) | `agy -p /usage` |
 
 토큰은 각 에이전트의 공식 API로만 보냅니다. 위젯은 토큰을 직접 갱신하지 않고 각 CLI에 맡깁니다. 추가한 계정과 동그라미 위치는 `~/.config/agent-usage/`에 저장됩니다.
 
 이미지 한도는 빈 프롬프트로 이미지 생성을 요청해서 받은 거절 응답의 헤더로 읽습니다. 서버가 거절하므로 이미지는 만들어지지 않습니다.
-
-**"지금 재설정"은 Codex 리셋권을 실제로 1회 씁니다.** 누르면 확인 창이 먼저 뜨고, 기본 선택은 취소입니다.
 
 ## 개발
 
