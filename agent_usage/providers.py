@@ -36,10 +36,15 @@ def from_iso(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) and value else None
 
 
-def window(label, used, reset_at):
+FIVE_HOURS = 18000
+WEEK = 604800
+
+
+def window(label, used, reset_at, seconds):
+    """seconds 는 한도 길이다. 상단바·부채꼴에 어느 한도를 보여 줄지 고를 때 쓴다."""
     if not isinstance(used, (int, float)):
         raise RuntimeError(t("사용률 값이 올바르지 않습니다: {v0}", v0=label))
-    return {"label": label, "used": max(0.0, min(100.0, float(used))), "reset_at": reset_at}
+    return {"label": label, "used": max(0.0, min(100.0, float(used))), "reset_at": reset_at, "seconds": seconds}
 
 
 def http_json(url, headers, data=None, method=None):
@@ -120,7 +125,7 @@ def parse_image_headers(headers):
         raise RuntimeError(t("이미지 한도 헤더가 없습니다."))
     seconds = int(headers["x-codex-primary-window-minutes"]) * 60
     return window(t("이미지") + " · " + window_label(seconds), float(headers["x-codex-primary-used-percent"]),
-                  from_epoch(headers.get("x-codex-primary-reset-at")))
+                  from_epoch(headers.get("x-codex-primary-reset-at")), seconds)
 
 
 def codex_image_limit(headers):
@@ -140,12 +145,13 @@ def parse_codex_usage(usage):
     rate = usage.get("rate_limit")
     if not isinstance(rate, dict):
         raise RuntimeError(t("Codex 사용량 정보가 없습니다."))
-    windows = [window(window_label(source["limit_window_seconds"]), source.get("used_percent"), from_epoch(source.get("reset_at")))
+    windows = [window(window_label(source["limit_window_seconds"]), source.get("used_percent"), from_epoch(source.get("reset_at")), source["limit_window_seconds"])
                for source in (rate.get("primary_window"), rate.get("secondary_window")) if source]
     for extra in usage.get("additional_rate_limits") or []:
         for source in (extra.get("rate_limit") or {}).get("primary_window"), (extra.get("rate_limit") or {}).get("secondary_window"):
             if source:
-                windows.append(window(f"{extra.get('limit_name')} · {window_label(source['limit_window_seconds'])}", source.get("used_percent"), from_epoch(source.get("reset_at"))))
+                windows.append(window(f"{extra.get('limit_name')} · {window_label(source['limit_window_seconds'])}", source.get("used_percent"), from_epoch(source.get("reset_at")),
+                                      source["limit_window_seconds"]))
     if not windows:
         raise RuntimeError(t("Codex 사용량 창이 없습니다."))
     return {"plan": usage.get("plan_type"), "windows": windows,
@@ -204,12 +210,12 @@ def claude_email(config_dir):
 
 
 def parse_claude_usage(usage):
-    windows = [window(label, usage[key]["utilization"], from_iso(usage[key]["resets_at"]))
-               for key, label in (("five_hour", "5h"), ("seven_day", t("주간"))) if usage.get(key)]
+    windows = [window(label, usage[key]["utilization"], from_iso(usage[key]["resets_at"]), seconds)
+               for key, label, seconds in (("five_hour", "5h", FIVE_HOURS), ("seven_day", t("주간"), WEEK)) if usage.get(key)]
     for limit in usage.get("limits") or []:
         model = ((limit.get("scope") or {}).get("model") or {}).get("display_name")
         if limit.get("kind") == "weekly_scoped" and model:
-            windows.append(window(f"{t('주간')} · {model}", limit.get("percent"), from_iso(limit.get("resets_at"))))
+            windows.append(window(f"{t('주간')} · {model}", limit.get("percent"), from_iso(limit.get("resets_at")), WEEK))
     if not windows:
         raise RuntimeError(t("Claude 사용량 창이 없습니다."))
     return windows
@@ -234,15 +240,22 @@ def antigravity_env(home):
     return {**env, "HOME": str(home), **NO_KEYRING} if home else env
 
 
+def antigravity_window(group, bucket):
+    lengths = {"5h": ("5h", FIVE_HOURS), "weekly": (t("주간"), WEEK)}
+    if bucket["window"] not in lengths:
+        raise RuntimeError(t("agy 사용량 응답을 해석하지 못했습니다: {v0}", v0=bucket["window"]))
+    name, seconds = lengths[bucket["window"]]
+    return window(f"{group['name'].replace(' Models', '').replace(' models', '')} · {name}",
+                  (1 - bucket["remaining_fraction"]) * 100, from_iso(bucket.get("reset_time")), seconds)
+
+
 def parse_antigravity(stdout):
     if "Authentication required" in stdout:
         raise LoginExpired(t("로그인 필요"))
     for line in stdout.splitlines():
         if line.startswith("{") and '"command"' in line:
             groups = json.loads(line)["command"]["data"]["groups"]
-            return [window(f"{group['name'].replace(' Models', '').replace(' models', '')} · {'5h' if bucket['window'] == '5h' else t('주간')}",
-                           (1 - bucket["remaining_fraction"]) * 100, from_iso(bucket.get("reset_time")))
-                    for group in groups for bucket in group["buckets"] if not bucket.get("disabled")]
+            return [antigravity_window(group, bucket) for group in groups for bucket in group["buckets"] if not bucket.get("disabled")]
     raise RuntimeError(t("agy 사용량 응답을 해석하지 못했습니다: {v0}", v0=stdout[:200]))
 
 

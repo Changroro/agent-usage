@@ -18,6 +18,7 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 - Click an agent bubble for its detail panel with every usage window and the plan name.
 - Several accounts per agent. Add or sign in again from the panel, and the sign-in page opens in your browser.
 - Top bar indicators with the current usage of each agent.
+- The bubbles and the top bar show the shortest limit (usually 5 hours) first. When it runs out, or when the weekly limit runs out, they switch to the weekly limit, marked with `W`.
 - Polls every 5 minutes by default. The last values are cached, so they show right away after a restart. When a usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
 - Optional desktop alerts, off by default: when a limit crosses the threshold you set with a slider (50–100%), when it runs out, and when it resets. Each alert fires once per limit until it resets.
 - Settings for language, used or remaining display, top bar icons, refresh interval, start on login, alerts and which agents to show.

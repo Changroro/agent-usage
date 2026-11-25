@@ -18,7 +18,8 @@ NOW = providers.now()
 
 
 def window(label, used, hours):
-    return {"label": label, "used": float(used), "reset_at": NOW + timedelta(hours=hours)}
+    seconds = providers.FIVE_HOURS if label.endswith("5h") else 86400 if label.endswith("24h") else providers.WEEK
+    return {"label": label, "used": float(used), "reset_at": NOW + timedelta(hours=hours), "seconds": seconds}
 
 
 ACCOUNTS = [
@@ -33,7 +34,7 @@ REPORTS = {
                           "reset_credits": {"count": 3, "expires": [NOW + timedelta(days=days, hours=4) for days in (4, 7, 11)]}},
     ("codex", "work"): {"status": "ok", "plan": "plus", "windows": [window("5h", 12, 4.6), window("Weekly", 27, 70)],
                         "reset_credits": {"count": 0, "expires": []}},
-    ("claude", "system"): {"status": "ok", "plan": "Max 20x", "windows": [window("5h", 18, 3.1), window("Weekly", 76, 94)]},
+    ("claude", "system"): {"status": "ok", "plan": "Max 20x", "windows": [window("5h", 100, 3.1), window("Weekly", 76, 94)]},
     ("antigravity", "system"): {"status": "ok", "plan": None, "windows": [window("Gemini · 5h", 41, 2.9), window("Gemini · Weekly", 23, 150),
                                                                           window("Claude and GPT · 5h", 0, 4.9), window("Claude and GPT · Weekly", 5, 151)]},
 }

@@ -132,7 +132,21 @@ def with_backoff(previous, fetched, backoff, now):
 
 
 def headline(report):
-    return max(report["windows"], key=lambda window: window["used"]) if report.get("windows") else None
+    """상단바·부채꼴·패널 줄에 보여 줄 한도. 평소엔 가장 짧은 한도다. 다 쓴 한도가 있으면 그보다 긴 한도 중 가장 짧은 것을,
+    더 긴 한도가 없으면 다 쓴 그 한도를 보여 준다. 길이가 같은 모델별 한도는 가장 많이 쓴 것을 쓴다."""
+    tiers = {}
+    for window in report.get("windows") or []:
+        if window["seconds"] not in tiers or window["used"] > tiers[window["seconds"]]["used"]:
+            tiers[window["seconds"]] = window
+    ordered = [tiers[seconds] for seconds in sorted(tiers)]
+    if not ordered:
+        return None
+    exhausted = [index for index, window in enumerate(ordered) if window["used"] >= 100]
+    return ordered[min(exhausted[-1] + 1, len(ordered) - 1)] if exhausted else ordered[0]
+
+
+def weekly(window):
+    return window["seconds"] >= providers.WEEK
 
 
 def icon(provider, size):
@@ -772,7 +786,8 @@ class App:
         if report["status"] != "ok":
             return status_text(report)
         # 상단바는 트레이 아이콘이 많으면 라벨을 잘라서 사용률만 둔다. 남은 시간은 패널에서 보인다.
-        return percent_text(headline(report)["used"])
+        top = headline(report)
+        return t("주") + " " + percent_text(top["used"]) if weekly(top) else percent_text(top["used"])
 
     # 패널
 
@@ -869,7 +884,9 @@ class App:
         if report["status"] != "ok":
             return None, status_text(report)
         top = headline(report)
-        return top["used"], countdown(top["reset_at"], compact=True)
+        reset = countdown(top["reset_at"], compact=True)
+        # 이름표는 64px 라 영어는 "Weekly" 대신 "W" 로 줄인다.
+        return top["used"], t("주간 {v0}", v0=reset) if weekly(top) else reset
 
     def slide(self, opening):
         # 투명도와 위치를 함께 바꿔 동그라미(또는 상단바) 쪽에서 밀려 나오는 것처럼 보이게 한다.
@@ -1046,7 +1063,8 @@ class App:
             row.pack_start(label(status_text(report), "muted"), False, False, 0)
         else:
             top = headline(report)
-            row.pack_start(label(countdown(top["reset_at"]), "muted", "small", xalign=1.0), False, False, 0)
+            reset = countdown(top["reset_at"])
+            row.pack_start(label(f"{t('주간')} · {reset}" if weekly(top) else reset, "muted", "small", xalign=1.0), False, False, 0)
             percent = label("", "percent", xalign=1.0)
             percent.set_width_chars(5)
             row.pack_start(Bar(top["used"], width=46, height=5, gray=True, key=(*self.key(account), "row"), text=percent), False, False, 0)
