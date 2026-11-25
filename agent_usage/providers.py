@@ -190,6 +190,14 @@ def claude_paths(config_dir):
     return Path.home() / ".claude" / ".credentials.json", Path.home() / ".claude.json"
 
 
+def antigravity_email(home):
+    """시스템 계정만 키링에서 읽는다. 추가 계정은 HOME 아래 파일에 저장되는데 그 위치는 아직 확인하지 않았다."""
+    if home:
+        return None
+    secret = subprocess.run(["secret-tool", "lookup", "service", "gemini", "username", "antigravity"], capture_output=True, text=True, timeout=5).stdout
+    return json.loads(secret).get("id_token_email") if secret else None
+
+
 def claude_email(config_dir):
     profile = claude_paths(config_dir)[1]
     return (json.loads(profile.read_text()).get("oauthAccount") or {}).get("emailAddress") if profile.exists() else None

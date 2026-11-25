@@ -31,9 +31,9 @@ def save_state(state):
 
 def system_accounts():
     codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    yield {"provider": "codex", "id": "system", "label": t("시스템 기본값"), "home": str(codex_home), "source": "system"}
-    yield {"provider": "claude", "id": "system", "label": t("시스템 기본값"), "home": os.environ.get("CLAUDE_CONFIG_DIR"), "source": "system"}
-    yield {"provider": "antigravity", "id": "system", "label": t("시스템 기본값"), "home": None, "source": "system"}
+    yield {"provider": "codex", "id": "system", "label": None, "home": str(codex_home), "source": "system"}
+    yield {"provider": "claude", "id": "system", "label": None, "home": os.environ.get("CLAUDE_CONFIG_DIR"), "source": "system"}
+    yield {"provider": "antigravity", "id": "system", "label": None, "home": None, "source": "system"}
 
 
 def account_email(account):
@@ -42,7 +42,9 @@ def account_email(account):
             return providers.codex_identity(account["home"])[1]
         if account["provider"] == "claude":
             return providers.claude_email(account["home"])
-    except (OSError, KeyError, ValueError, IndexError):
+        if account["provider"] == "antigravity":
+            return providers.antigravity_email(account["home"])
+    except (OSError, KeyError, ValueError, IndexError, subprocess.SubprocessError):
         return None
     return None
 
@@ -60,7 +62,8 @@ def list_accounts(state):
             if key in seen:
                 continue
             seen.add(key)
-        result.append({**account, "label": account.get("label") or email or t("이름 없는 계정"), "email": email})
+        fallback = t("시스템 기본값") if account["source"] == "system" else t("이름 없는 계정")
+        result.append({**account, "label": account.get("label") or email or fallback, "email": email})
     return result
 
 
