@@ -19,20 +19,43 @@ AI 코딩 에이전트의 사용량을 화면에 떠 있는 동그라미로 보�
 - 상단바에도 에이전트별 사용률이 표시됩니다.
 - 5분마다 갱신합니다. 사용량 API가 요청이 잦다고 거절하면 5분에서 30분까지 쉬면서 마지막 값을 보여 줍니다.
 
-## 필요 환경
+## 설치
 
-- Ubuntu GNOME X11(지금까지 확인한 환경)과 AppIndicator 확장
-- `python3-gi`, `python3-gi-cairo`, `gir1.2-ayatanaappindicator3-0.1`
-- 쓰는 에이전트의 CLI: `codex`, `claude`, `agy`
+Ubuntu 24.04 GNOME X11에서 확인했습니다.
 
-## 사용법
+**1. 시스템 패키지 설치**
+
+```bash
+sudo apt install python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator
+```
+
+**2. 위젯 받기**
 
 ```bash
 git clone https://github.com/Changroro/agent-usage.git
 cd agent-usage
-./bin/agent-usage          # 동그라미와 상단바 아이콘
-./bin/agent-usage --open   # 패널도 바로 열기
 ```
+
+**3. 쓰는 에이전트에 로그인**
+
+위젯은 각 에이전트 CLI의 로그인 정보를 읽습니다. `codex login`, `claude`, `agy` 중 쓰는 것으로 한 번 로그인해 두세요. 계정은 나중에 위젯에서 더 추가할 수 있습니다.
+
+**4. 실행**
+
+```bash
+./bin/agent-usage
+```
+
+**5. 로그인할 때 자동 실행 (선택)**
+
+`agent-usage` 폴더 안에서 실행합니다.
+
+```bash
+mkdir -p ~/.config/autostart
+printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-usage\n' "$PWD" > ~/.config/autostart/agent-usage.desktop
+```
+
+## 사용법
 
 | 조작 | 결과 |
 |---|---|
@@ -42,16 +65,7 @@ cd agent-usage
 | 동그라미 오른쪽 클릭 | 전체 보기, 계정 연결, 새로고침, 종료 |
 | 패널의 톱니바퀴 | 계정 추가, 이름 바꾸기, 다시 로그인, 삭제 |
 
-언어는 시스템 언어를 따르고 `AGENT_USAGE_LANGUAGE=ko` 또는 `en`으로 바꿀 수 있습니다.
-
-로그인할 때 자동으로 켜려면 `~/.config/autostart/agent-usage.desktop`을 만듭니다.
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=agent-usage
-Exec=/path/to/agent-usage/bin/agent-usage
-```
+`./bin/agent-usage --open`으로 실행하면 패널도 바로 열립니다. 언어는 시스템 언어를 따르고 `AGENT_USAGE_LANGUAGE=ko` 또는 `en`으로 바꿀 수 있습니다.
 
 ## 데이터를 읽는 곳
 

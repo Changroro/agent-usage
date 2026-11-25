@@ -19,20 +19,43 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 - Top bar indicators with the current usage of each agent.
 - Polls every 5 minutes. When an agent's usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
 
-## Requirements
+## Installation
 
-- Ubuntu with GNOME on X11 (only setup tested so far) and the AppIndicator extension
-- `python3-gi`, `python3-gi-cairo`, `gir1.2-ayatanaappindicator3-0.1`
-- The CLIs of the agents you use: `codex`, `claude`, `agy`
+Tested on Ubuntu 24.04 with GNOME on X11.
 
-## Usage
+**1. Install the system packages**
+
+```bash
+sudo apt install python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator
+```
+
+**2. Get the widget**
 
 ```bash
 git clone https://github.com/Changroro/agent-usage.git
 cd agent-usage
-./bin/agent-usage          # bubble and top bar icons
-./bin/agent-usage --open   # also open the panel right away
 ```
+
+**3. Sign in to the agents you use**
+
+The widget reads the sign-in of each agent's own CLI. Sign in once with `codex login`, `claude` or `agy`. You can add more accounts later from the widget.
+
+**4. Run**
+
+```bash
+./bin/agent-usage
+```
+
+**5. Start on login (optional)**
+
+Run this inside the `agent-usage` folder.
+
+```bash
+mkdir -p ~/.config/autostart
+printf '[Desktop Entry]\nType=Application\nName=agent-usage\nExec=%s/bin/agent-usage\n' "$PWD" > ~/.config/autostart/agent-usage.desktop
+```
+
+## Usage
 
 | Action | Result |
 |---|---|
@@ -42,16 +65,7 @@ cd agent-usage
 | Right-click the bubble | Show all, connect accounts, refresh, quit |
 | Gear icon in the panel | Add, rename, sign in again or remove accounts |
 
-The language follows the system. Set `AGENT_USAGE_LANGUAGE=ko` or `en` to override it.
-
-To start it on login, create `~/.config/autostart/agent-usage.desktop`:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=agent-usage
-Exec=/path/to/agent-usage/bin/agent-usage
-```
+`./bin/agent-usage --open` also opens the panel right away. The language follows the system, and `AGENT_USAGE_LANGUAGE=ko` or `en` overrides it.
 
 ## Where the data comes from
 
