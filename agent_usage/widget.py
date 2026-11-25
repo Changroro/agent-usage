@@ -490,6 +490,8 @@ class Fan(Gtk.Window):
 
     def open(self):
         self.show_all()
+        # 닫히는 애니메이션 중에 다시 열면 창이 아직 떠 있어서 저절로 위로 오지 않는다.
+        self.get_window().raise_()
         self.follow()
         self.opened = True
         self.animate(True)
@@ -595,11 +597,15 @@ class Fan(Gtk.Window):
             context.pop_group_to_source()
             context.paint_with_alpha(appear)
 
-    def item_anchor(self, provider):
+    def anchor(self):
+        """펼친 동그라미 전부(이름표 포함)와 오브를 감싸는 사각형. 패널을 이 바깥에 열어 어느 동그라미도 가리지 않는다."""
         # 끄는 중에는 get_position 이 늦어서 동그라미 중심에서 계산한다.
         center_x, center_y = self.app.bubble.center()
-        x, y, _ = self.positions()[provider]
-        return center_x - self.HALF + x - self.DISC, center_y - self.HALF + y - self.DISC, 2 * self.DISC, 2 * self.DISC
+        rects = [(center_x - self.HALF + left, center_y - self.HALF + top, width, height)
+                 for left, top, width, height in (self.hit_rect(x, y) for x, y, _ in self.positions().values())]
+        rects.append(self.app.bubble.anchor())
+        left, top = min(r[0] for r in rects), min(r[1] for r in rects)
+        return left, top, max(r[0] + r[2] for r in rects) - left, max(r[1] + r[3] for r in rects) - top
 
     def release(self, _widget, event):
         for provider, (x, y, _) in self.positions().items():
@@ -643,7 +649,7 @@ class App:
         self.timer = None
         self.schedule()
         self.refresh()
-        GLib.timeout_add_seconds(60, self.update_indicators)
+        GLib.timeout_add_seconds(60, self.update_indicators, True)
 
     # 데이터
 
@@ -791,10 +797,18 @@ class App:
         # 동그라미로 연 패널은 다른 곳을 눌러도 열어 둔다. 동그라미나 Esc 로 닫는다.
         window.connect("focus-out-event", lambda *_args: self.focused and not self.logins and self.anchor is None and self.close_panel())
         window.connect("hide", lambda *_args: setattr(self, "focused", False))
+        window.connect("map-event", self.panel_over_fan)
+        window.connect("focus-in-event", self.panel_over_fan)
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.body.get_style_context().add_class("panel")
         window.add(self.body)
         return window
+
+    def panel_over_fan(self, *_args):
+        # 부채꼴은 POPUP 이라 창 관리자가 패널을 올려도 그 위에 남는다. 나중에 연 패널이 위에 오게 부채꼴을 패널 바로 아래로 내린다.
+        if self.window.get_visible() and self.fan.get_visible():
+            self.fan.get_window().restack(self.window.get_window(), False)
+        return False
 
     def workarea(self):
         return self.workarea_at(*self.anchor[:2]) if self.anchor else Gdk.Display.get_default().get_primary_monitor().get_workarea()
@@ -809,6 +823,7 @@ class App:
                 self.anchor_source, self.anchor = source, source()
             self.render()
             self.window.present()
+            self.panel_over_fan()
             return
         self.anchor_source = source
         self.anchor = source() if source else None
@@ -816,6 +831,7 @@ class App:
         self.window.show_all()
         self.render()
         self.window.present()
+        self.panel_over_fan()
         self.slide(opening=True)
 
     def close_panel(self):
@@ -831,14 +847,14 @@ class App:
 
     def show_all_agents(self):
         self.expanded = set(self.visible_providers())
-        self.show_panel(source=self.bubble.anchor)
+        self.show_panel(source=self.fan.anchor if self.fan.opened else self.bubble.anchor)
 
     def open_agent(self, provider):
         if self.window.get_visible() and not self.closing and self.expanded == {provider}:
             self.close_panel()
             return
         self.expanded = {provider}
-        self.show_panel(source=lambda: self.fan.item_anchor(provider))
+        self.show_panel(source=self.fan.anchor)
 
     def follow_anchor(self):
         if self.anchor_source and self.window.get_visible() and not self.closing:
@@ -892,9 +908,12 @@ class App:
         if not self.closing:
             self.window.move(*self.target)
 
-    def update_indicators(self):
+    def update_indicators(self, resend=False):
         self.fan.queue_draw()
         for provider in NAMES:
+            if resend:
+                # GNOME AppIndicator 확장은 처음 받은 라벨을 그리지 않고 바뀔 때만 그린다. 매분 비웠다 다시 넣어 바뀐 것으로 보낸다.
+                self.indicators[provider].set_label("", "")
             self.indicators[provider].set_label(self.indicator_text(provider), "")
         return True
 
