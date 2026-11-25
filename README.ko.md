@@ -12,7 +12,7 @@ AI 코딩 에이전트의 사용량을 화면에 떠 있는 동그라미로 보�
 
 ## 기능
 
-- 항상 위에 떠 있는 동그라미를 누르면 에이전트별 동그라미가 부채꼴로 펼쳐지고, 위에 사용률과 초기화까지 남은 시간이 표시됩니다.
+- 항상 위에 떠 있는 에너지 오브가 천천히 돌며 색이 은은하게 바뀝니다. 누르면 에이전트별 동그라미가 부채꼴로 펼쳐지고, 위에 사용률과 초기화까지 남은 시간이 표시됩니다.
 - 에이전트 동그라미를 누르면 5시간·주간·모델별 사용량 상세 패널이 열립니다.
 - Codex는 리셋권(티켓을 누르면 장마다 만료일)과 이미지 생성 24시간 한도도 보여 줍니다.
 - 에이전트마다 계정을 여러 개 등록할 수 있습니다. 계정 추가나 다시 로그인을 누르면 브라우저에서 로그인 페이지가 열립니다.
@@ -90,7 +90,7 @@ python3 -m unittest discover -s tests
 AGENT_USAGE_LANGUAGE=en ./scripts/screenshots.py   # README 스크린샷을 예시 데이터로 다시 생성
 ```
 
-아이콘은 [LobeHub Icons](https://github.com/lobehub/lobe-icons)(MIT, `assets/LobeHub-LICENSE`)에서 가져왔습니다.
+에이전트 아이콘은 [LobeHub Icons](https://github.com/lobehub/lobe-icons)(MIT, `assets/LobeHub-LICENSE`)에서 가져왔습니다. 오브 그림(`assets/orb.png`)은 이 프로젝트용으로 Codex의 OpenAI 이미지 생성으로 만들었습니다.
 
 ## 라이선스
 

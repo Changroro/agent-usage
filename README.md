@@ -12,7 +12,7 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 
 ## Features
 
-- A floating bubble that stays on top. Click it to fan out one bubble per agent with its usage and time to reset.
+- A floating energy orb that stays on top, slowly turning while its colors drift. Click it to fan out one bubble per agent with its usage and time to reset.
 - Click an agent bubble for its detail panel: 5-hour, weekly and per-model windows.
 - Codex extras: rate limit reset credits (click the tickets for each expiry date) and the 24-hour image generation limit.
 - Several accounts per agent. Add or sign in again from the panel, and the sign-in page opens in your browser.
@@ -90,7 +90,7 @@ python3 -m unittest discover -s tests
 AGENT_USAGE_LANGUAGE=en ./scripts/screenshots.py   # regenerate the README screenshots from sample data
 ```
 
-Icons come from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT, `assets/LobeHub-LICENSE`).
+Agent icons come from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT, `assets/LobeHub-LICENSE`). The orb image (`assets/orb.png`) was made for this project with OpenAI image generation through Codex.
 
 ## License
 

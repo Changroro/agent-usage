@@ -91,7 +91,7 @@ def main():
     fan = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
     app.fan.draw(None, cairo.Context(fan))
     bubble = cairo.ImageSurface(cairo.FORMAT_ARGB32, widget.Bubble.SIZE, widget.Bubble.SIZE)
-    widget.Bubble.draw(SimpleNamespace(SIZE=widget.Bubble.SIZE), None, cairo.Context(bubble))
+    widget.draw_orb(cairo.Context(bubble), widget.Bubble.SIZE, 0, widget.load_orb(widget.Bubble.SIZE))
     surface, context = background(size, 250)
     context.set_source_surface(fan, 0, -20)
     context.paint()

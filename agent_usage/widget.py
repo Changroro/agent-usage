@@ -1,3 +1,4 @@
+import colorsys
 import math
 import signal
 
@@ -24,6 +25,7 @@ AUTOSTART = Path.home() / ".config" / "autostart" / "agent-usage.desktop"
 REFRESH_CHOICES = (2, 5, 10, 15, 30)
 DEFAULT_SETTINGS = {"refresh_minutes": 5, "display": "used", "agents": ["codex", "claude", "antigravity"], "indicators": True, "language": "system"}
 TWEEN_SECONDS = 0.5
+ORB_FPS = 30
 REVEAL_MS = 220
 SLIDE_SECONDS = 0.18
 FAN_SECONDS = 0.28
@@ -263,8 +265,66 @@ def panel_origin(anchor, size, area):
     return min(max(x, area_x), area_x + area_width - width), max(min(y, area_y + area_height - height - 8), area_y + 8)
 
 
+# 원본(파랑 기준)에서 색상을 돌릴 양. 물 → 마법 → 불 → 전기 → 풀 순서로 원소처럼 완전히 바뀐다.
+ELEMENTS = (0.0, 0.14, -0.58, -0.47, -0.29)
+ELEMENT_HOLD = 3.5
+ELEMENT_CHANGE = 1.2
+
+
+def element_mix(seconds):
+    """(지금 원소, 다음 원소, 다음 원소 비율 0~1). 한 원소에 머문 뒤 부드럽게 넘어간다."""
+    span = ELEMENT_HOLD + ELEMENT_CHANGE
+    current = int(seconds // span) % len(ELEMENTS)
+    into = seconds % span - ELEMENT_HOLD
+    progress = 0.0 if into <= 0 else into / ELEMENT_CHANGE
+    return current, (current + 1) % len(ELEMENTS), progress * progress * (3 - 2 * progress)
+
+
+def shift_hue(surface, delta):
+    """ARGB32(premultiplied) 그림의 색상을 delta(0~1 한 바퀴)만큼 돌린 새 그림. 밝기·채도·투명도는 그대로다.
+    cairo 의 HSL_HUE 합성은 반투명 가장자리에서 색이 틀어져서 픽셀을 직접 바꾼다."""
+    data = bytes(surface.get_data())
+    out = bytearray(data)
+    for index in range(0, len(data), 4):
+        alpha = data[index + 3]
+        if alpha == 0:
+            continue
+        blue, green, red = data[index] / alpha, data[index + 1] / alpha, data[index + 2] / alpha
+        hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
+        red, green, blue = colorsys.hsv_to_rgb((hue + delta) % 1.0, saturation, value)
+        out[index], out[index + 1], out[index + 2] = round(blue * alpha), round(green * alpha), round(red * alpha)
+    return cairo.ImageSurface.create_for_data(out, cairo.FORMAT_ARGB32, surface.get_width(), surface.get_height(), surface.get_stride())
+
+
+def draw_orb(context, size, seconds, variants):
+    """Codex 이미지 생성으로 만든 오브 그림을 천천히 돌리고 숨쉬게 하며, 원소별로 색상을 돌린 그림 사이를 넘어간다."""
+    context.set_operator(cairo.OPERATOR_SOURCE)
+    context.set_source_rgba(0, 0, 0, 0)
+    context.paint()
+    context.set_operator(cairo.OPERATOR_OVER)
+    width = variants[0].get_width()
+    center = size / 2
+    breathe = 1 + 0.035 * math.sin(seconds * 2 * math.pi / 4.0)
+    context.translate(center, center)
+    context.rotate(seconds * 2 * math.pi / 40.0)
+    context.scale(breathe * size / width, breathe * size / width)
+    context.translate(-width / 2, -width / 2)
+    current, following, progress = element_mix(seconds)
+    context.set_source_surface(variants[current], 0, 0)
+    context.paint()
+    if progress > 0:
+        context.set_source_surface(variants[following], 0, 0)
+        context.paint_with_alpha(progress)
+
+
+def load_orb(pixels):
+    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(ASSET_DIR / "orb.png"), pixels, pixels)
+    orb = Gdk.cairo_surface_create_from_pixbuf(pixbuf, 1, None)
+    return [shift_hue(orb, delta) for delta in ELEMENTS]
+
+
 class Bubble(Gtk.Window):
-    SIZE = 56
+    SIZE = 72
 
     def __init__(self, app):
         super().__init__(type=Gtk.WindowType.TOPLEVEL, title="agent-usage-bubble")
@@ -289,6 +349,8 @@ class Bubble(Gtk.Window):
         self.connect("button-release-event", self.release)
         self.connect("configure-event", self.moved)
         self.menu = self.make_menu()
+        self.orb = load_orb(self.SIZE * self.get_scale_factor())
+        GLib.timeout_add(1000 // ORB_FPS, self.tick)
         saved = app.state.get("bubble")
         if not saved:
             area = Gdk.Display.get_default().get_primary_monitor().get_workarea()
@@ -299,26 +361,12 @@ class Bubble(Gtk.Window):
         self.show_all()
 
     def draw(self, _widget, context):
-        context.set_operator(cairo.OPERATOR_SOURCE)
-        context.set_source_rgba(0, 0, 0, 0)
-        context.paint()
-        context.set_operator(cairo.OPERATOR_OVER)
-        center = self.SIZE / 2
-        context.arc(center, center, center - 2, 0, 6.2832)
-        context.set_source_rgb(0.12, 0.12, 0.12)
-        context.fill_preserve()
-        context.set_source_rgba(1, 1, 1, 0.18)
-        context.set_line_width(1.5)
-        context.stroke()
-        # 네 갈래 반짝이 모양 AI 아이콘
-        for scale, dx, dy in ((11, 0, 0), (4.5, 9, -9)):
-            x, y = center + dx, center + dy
-            context.move_to(x, y - scale)
-            for to_x, to_y, end_x, end_y in ((x, y, x + scale, y), (x, y, x, y + scale), (x, y, x - scale, y), (x, y, x, y - scale)):
-                context.curve_to(to_x, to_y, to_x, to_y, end_x, end_y)
-            context.close_path()
-        context.set_source_rgb(0.95, 0.95, 0.95)
-        context.fill()
+        draw_orb(context, self.SIZE, GLib.get_monotonic_time() / 1e6, self.orb)
+
+    def tick(self):
+        if self.get_visible():
+            self.queue_draw()
+        return True
 
     def press(self, _widget, event):
         if event.button == 1:
@@ -369,7 +417,7 @@ class Bubble(Gtk.Window):
         return menu
 
 
-def fan_angles(bubble_center, area, radius=118, item=(32, 62, 22), count=3, spread=55):
+def fan_angles(bubble_center, area, radius=104, item=(32, 62, 22), count=3, spread=42):
     """부채꼴 항목 각도(라디안, 수학 좌표). 위(아래쪽이 좁으면 아래)로 펼치고, 항목이 작업 영역 밖으로
     나가면 화면 가운데 쪽으로 필요한 만큼만 돌린다. item 은 (반너비, 위 여유, 아래 여유)다."""
     x, y = bubble_center
@@ -399,7 +447,7 @@ def fan_angles(bubble_center, area, radius=118, item=(32, 62, 22), count=3, spre
 
 
 class Fan(Gtk.Window):
-    RADIUS = 118
+    RADIUS = 104
     DISC = 22
     HALF = 210
     PILL = (64, 34)
