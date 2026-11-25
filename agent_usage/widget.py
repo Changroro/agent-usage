@@ -417,7 +417,7 @@ class Bubble(Gtk.Window):
         return menu
 
 
-def fan_angles(bubble_center, area, radius=104, item=(32, 62, 22), count=3, spread=42):
+def fan_angles(bubble_center, area, radius=80, item=(32, 62, 22), count=3, spread=54):
     """부채꼴 항목 각도(라디안, 수학 좌표). 위(아래쪽이 좁으면 아래)로 펼치고, 항목이 작업 영역 밖으로
     나가면 화면 가운데 쪽으로 필요한 만큼만 돌린다. item 은 (반너비, 위 여유, 아래 여유)다."""
     x, y = bubble_center
@@ -447,7 +447,7 @@ def fan_angles(bubble_center, area, radius=104, item=(32, 62, 22), count=3, spre
 
 
 class Fan(Gtk.Window):
-    RADIUS = 104
+    RADIUS = 80
     DISC = 22
     HALF = 210
     PILL = (64, 34)

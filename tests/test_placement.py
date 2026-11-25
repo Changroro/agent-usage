@@ -27,18 +27,18 @@ class PlacementTest(unittest.TestCase):
         self.assertLessEqual(x + 440, 3840 + 1920)
 
     def test_fan_opens_upward_when_there_is_room(self):
-        self.assertEqual([round(math.degrees(angle)) for angle in fan_angles((4800, 1000), AREA)], [132, 90, 48])
+        self.assertEqual([round(math.degrees(angle)) for angle in fan_angles((4800, 1000), AREA)], [144, 90, 36])
 
     def test_fan_turns_inward_only_as_much_as_needed_in_corner(self):
         angles = [math.degrees(angle) for angle in fan_angles((5708, 1008), AREA)]
         self.assertGreater(angles[1], 90)
         self.assertLess(angles[1], 153)
         for angle in angles:
-            x = 5708 + 104 * math.cos(math.radians(angle))
+            x = 5708 + 80 * math.cos(math.radians(angle))
             self.assertLessEqual(x + 32, 3840 + 1920)
 
     def test_two_agents_spread_evenly_around_top(self):
-        self.assertEqual([round(math.degrees(angle), 1) for angle in fan_angles((4800, 1000), AREA, count=2)], [111.0, 69.0])
+        self.assertEqual([round(math.degrees(angle), 1) for angle in fan_angles((4800, 1000), AREA, count=2)], [117.0, 63.0])
 
     def test_fan_opens_downward_near_top(self):
         self.assertEqual(round(math.degrees(fan_angles((4800, 60), AREA)[1])), -90)
