@@ -1,0 +1,81 @@
+# agent-usage
+
+[English](README.md)
+
+AI 코딩 에이전트의 사용량을 화면에 떠 있는 동그라미로 보여 주는 리눅스 위젯입니다. 각 에이전트의 로컬 로그인 정보를 바로 읽어서 프록시가 필요 없습니다.
+
+**지원 에이전트: 현재 Codex, Claude, Antigravity만 지원합니다.**
+
+| 떠 있는 동그라미 | 사용량 패널 |
+|---|---|
+| ![부채꼴로 펼친 동그라미](docs/screenshots/fan.png) | ![Codex를 펼친 사용량 패널](docs/screenshots/panel.png) |
+
+## 기능
+
+- 항상 위에 떠 있는 동그라미를 누르면 에이전트별 동그라미가 부채꼴로 펼쳐지고, 위에 사용률과 초기화까지 남은 시간이 표시됩니다.
+- 에이전트 동그라미를 누르면 5시간·주간·모델별 사용량 상세 패널이 열립니다.
+- Codex는 리셋권(티켓을 누르면 장마다 만료일)과 이미지 생성 24시간 한도도 보여 줍니다.
+- 에이전트마다 계정을 여러 개 등록할 수 있습니다. 계정 추가나 다시 로그인을 누르면 브라우저에서 로그인 페이지가 열립니다.
+- 상단바에도 에이전트별 사용률이 표시됩니다.
+- 5분마다 갱신합니다. 사용량 API가 요청이 잦다고 거절하면 5분에서 30분까지 쉬면서 마지막 값을 보여 줍니다.
+
+## 필요 환경
+
+- Ubuntu GNOME X11(지금까지 확인한 환경)과 AppIndicator 확장
+- `python3-gi`, `python3-gi-cairo`, `gir1.2-ayatanaappindicator3-0.1`
+- 쓰는 에이전트의 CLI: `codex`, `claude`, `agy`
+
+## 사용법
+
+```bash
+git clone https://github.com/Changroro/agent-usage.git
+cd agent-usage
+./bin/agent-usage          # 동그라미와 상단바 아이콘
+./bin/agent-usage --open   # 패널도 바로 열기
+```
+
+| 조작 | 결과 |
+|---|---|
+| 동그라미 누르기 | 에이전트 동그라미가 부채꼴로 펼쳐짐, 다시 누르면 접힘 |
+| 동그라미 끌기 | 위치 이동. 부채꼴과 열린 패널이 따라오고 위치는 저장됨 |
+| 에이전트 동그라미 누르기 | 그 에이전트 상세 패널 |
+| 동그라미 오른쪽 클릭 | 전체 보기, 계정 연결, 새로고침, 종료 |
+| 패널의 톱니바퀴 | 계정 추가, 이름 바꾸기, 다시 로그인, 삭제 |
+
+언어는 시스템 언어를 따르고 `AGENT_USAGE_LANGUAGE=ko` 또는 `en`으로 바꿀 수 있습니다.
+
+로그인할 때 자동으로 켜려면 `~/.config/autostart/agent-usage.desktop`을 만듭니다.
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=agent-usage
+Exec=/path/to/agent-usage/bin/agent-usage
+```
+
+## 데이터를 읽는 곳
+
+| 에이전트 | 계정 | 사용량 |
+|---|---|---|
+| Codex | `~/.codex`, [Orca](https://github.com/stablyai/orca) 계정, 여기서 추가한 계정(`CODEX_HOME`) | `wham/usage`, 리셋권 API, 이미지 한도 헤더 |
+| Claude | `~/.claude`, 여기서 추가한 계정(`CLAUDE_CONFIG_DIR`) | `api/oauth/usage` |
+| Antigravity | 시스템 키링 계정, 여기서 추가한 계정(별도 `HOME`, 파일 토큰 저장) | `agy -p /usage` |
+
+토큰은 각 에이전트의 공식 API로만 보냅니다. 위젯은 토큰을 직접 갱신하지 않고 각 CLI에 맡깁니다. 추가한 계정과 동그라미 위치는 `~/.config/agent-usage/`에 저장됩니다.
+
+이미지 한도는 빈 프롬프트로 이미지 생성을 요청해서 받은 거절 응답의 헤더로 읽습니다. 서버가 거절하므로 이미지는 만들어지지 않습니다.
+
+**"지금 재설정"은 Codex 리셋권을 실제로 1회 씁니다.** 누르면 확인 창이 먼저 뜨고, 기본 선택은 취소입니다.
+
+## 개발
+
+```bash
+python3 -m unittest discover -s tests
+AGENT_USAGE_LANGUAGE=en ./scripts/screenshots.py   # README 스크린샷을 예시 데이터로 다시 생성
+```
+
+아이콘은 [LobeHub Icons](https://github.com/lobehub/lobe-icons)(MIT, `assets/LobeHub-LICENSE`)에서 가져왔습니다.
+
+## 라이선스
+
+MIT
