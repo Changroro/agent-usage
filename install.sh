@@ -5,7 +5,7 @@ set -euo pipefail
 REPO="Changroro/agent-usage"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/agent-usage"
 BIN="$HOME/.local/bin"
-PACKAGES=(python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator)
+PACKAGES=(python3-gi python3-gi-cairo gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator gir1.2-notify-0.7)
 
 if [ "${1:-}" = "--uninstall" ]; then
     rm -rf "$DEST" "$BIN/agent-usage" "$HOME/.local/share/applications/agent-usage.desktop" "$HOME/.config/autostart/agent-usage.desktop"

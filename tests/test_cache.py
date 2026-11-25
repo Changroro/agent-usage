@@ -12,15 +12,17 @@ class CacheTest(unittest.TestCase):
         reports = {("codex", "abc|x"): {"status": "ok", "fetched_at": 100.0, "windows": [{"label": "5h", "used": 64.0, "reset_at": reset}],
                                             "reset_credits": {"count": 1, "expires": [reset]}}}
         backoff = {("claude", "system"): (400.0, 300), ("codex", "abc|x"): None}
+        sent = {("codex", "system", "5h"): {"reset_at": reset, "kinds": ["threshold"]}}
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "nested" / "reports.json"
-            cache.save(reports, backoff, path)
-            loaded_reports, loaded_backoff = cache.load(path)
+            cache.save(reports, backoff, sent, path)
+            loaded_reports, loaded_backoff, loaded_sent = cache.load(path)
         self.assertEqual(loaded_reports, reports)
         self.assertEqual(loaded_backoff, {("claude", "system"): (400.0, 300)})
+        self.assertEqual(loaded_sent, sent)
 
     def test_missing_file_is_empty(self):
-        self.assertEqual(cache.load(Path("/nonexistent/agent-usage.json")), ({}, {}))
+        self.assertEqual(cache.load(Path("/nonexistent/agent-usage.json")), ({}, {}, {}))
 
 
 if __name__ == "__main__":

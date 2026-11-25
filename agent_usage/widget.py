@@ -15,15 +15,17 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import AyatanaAppIndicator3, Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo
+gi.require_version("Notify", "0.7")
+from gi.repository import AyatanaAppIndicator3, Gdk, GdkPixbuf, GLib, Gtk, Notify, Pango, PangoCairo
 
-from . import accounts, cache, i18n, providers
+from . import accounts, alerts, cache, i18n, providers
 from .i18n import t
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
 AUTOSTART = Path.home() / ".config" / "autostart" / "agent-usage.desktop"
 REFRESH_CHOICES = (2, 5, 10, 15, 30)
-DEFAULT_SETTINGS = {"refresh_minutes": 5, "display": "used", "agents": ["codex", "claude", "antigravity"], "indicators": True, "language": "system"}
+DEFAULT_SETTINGS = {"refresh_minutes": 5, "display": "used", "agents": ["codex", "claude", "antigravity"], "indicators": True, "language": "system",
+                    "alerts": False, "alert_threshold": 90}
 TWEEN_SECONDS = 0.5
 ORB_FPS = 30
 REVEAL_MS = 220
@@ -612,7 +614,8 @@ class App:
         self.settings = {**DEFAULT_SETTINGS, **self.state.get("settings", {})}
         i18n.set_language(self.settings["language"])
         self.apply_display()
-        self.reports, self.backoff = cache.load()
+        self.reports, self.backoff, self.sent = cache.load()
+        Notify.init("agent-usage")
         try:
             self.accounts = accounts.list_accounts(self.state)
         except Exception:
@@ -702,9 +705,25 @@ class App:
         else:
             self.error = None
             self.accounts, self.reports = found, reports
-            cache.save(self.reports, self.backoff)
+            if self.settings["alerts"]:
+                self.send_alerts(alerts.check({key: report for key, report in reports.items() if key[0] in self.settings["agents"]},
+                                         self.sent, self.settings["alert_threshold"]))
+            cache.save(self.reports, self.backoff, self.sent)
         self.render()
         return False
+
+    def send_alerts(self, events):
+        for kind, (provider, account_id), window in events:
+            if kind == "full":
+                body = t("한도를 다 썼습니다")
+            elif kind == "reset":
+                body = t("한도가 초기화됐습니다")
+            else:
+                body = f"{t('남은 양') if SHOW_REMAINING else t('사용률')} {percent_text(window['used'])}"
+            if len(self.provider_accounts(provider)) > 1:
+                account = next((item for item in self.accounts if self.key(item) == (provider, account_id)), None)
+                body += f" · {account['label']}" if account else ""
+            Notify.Notification.new(f"{NAMES[provider]} · {window['label']}", body, str(ASSET_DIR / f"{ICONS[provider]}.svg")).show()
 
     # 상단바
 
@@ -1235,6 +1254,10 @@ class App:
         outer.pack_start(label(t("동작"), "title"), False, False, 0)
         outer.pack_start(self.choice_row(t("갱신 주기"), "refresh_minutes", tuple((minutes, t("{v0}분", v0=minutes)) for minutes in REFRESH_CHOICES)), False, False, 0)
         outer.pack_start(self.switch_row(t("로그인 시 자동 실행"), AUTOSTART.exists(), self.set_autostart), False, False, 0)
+        threshold = self.threshold_row()
+        outer.pack_start(self.switch_row(t("사용량 알림"), self.settings["alerts"],
+                                         lambda on: (self.change("alerts", on), threshold.set_sensitive(on))), False, False, 0)
+        outer.pack_start(threshold, False, False, 0)
         outer.pack_start(self.separator(), False, False, 0)
         outer.pack_start(label(t("에이전트와 계정"), "title"), False, False, 0)
         for provider in NAMES:
@@ -1270,6 +1293,28 @@ class App:
         row.pack_end(switch, False, False, 0)
         return row
 
+    def threshold_row(self):
+        row = Gtk.Box(spacing=8)
+        row.pack_start(label(t("알림 기준선")), False, False, 0)
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 50, 100, 5)
+        scale.set_value(self.settings["alert_threshold"])
+        scale.set_inverted(SHOW_REMAINING)
+        scale.set_value_pos(Gtk.PositionType.RIGHT)
+        scale.connect("format-value", lambda _scale, value: t("남은 양 {v0}% 이하", v0=100 - round(value)) if SHOW_REMAINING
+                      else t("사용률 {v0}% 이상", v0=round(value)))
+        # 끌기는 단위에 맞춰 멈추지 않아서 5% 단위로 반올림해 저장한다.
+        scale.connect("value-changed", lambda scale: self.change_threshold(scale))
+        row.pack_start(scale, True, True, 0)
+        row.set_sensitive(self.settings["alerts"])
+        return row
+
+    def change_threshold(self, scale):
+        value = round(scale.get_value() / 5) * 5
+        if value != scale.get_value():
+            scale.set_value(value)
+        elif value != self.settings["alert_threshold"]:
+            self.change("alert_threshold", value)
+
     def choice_row(self, text, name, choices):
         row = Gtk.Box(spacing=8)
         row.pack_start(label(text), True, True, 0)
@@ -1294,6 +1339,8 @@ class App:
             GLib.idle_add(lambda: self.open_settings() or False)
         elif name == "refresh_minutes":
             self.schedule()
+        elif name == "display":
+            GLib.idle_add(lambda: self.settings_window and self.open_settings() or False)
         self.apply_display()
         self.apply_indicators()
         if self.fan.opened:
