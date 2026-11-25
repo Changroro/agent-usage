@@ -31,9 +31,9 @@ ACCOUNTS = [
 REPORTS = {
     ("codex", "system"): {"status": "ok", "plan": "team", "windows": [window("5h", 64, 2.2), window("Weekly", 38, 110)],
                           "image": window("Images · 24h", 21, 15),
-                          "reset_credits": {"count": 3, "expires": [NOW + timedelta(days=days, hours=4) for days in (4, 7, 11)]}},
+                          "reset_credits": {"count": 3, "credits": [{"id": f"c{days}", "expires": NOW + timedelta(days=days, hours=4)} for days in (4, 7, 11)]}},
     ("codex", "work"): {"status": "ok", "plan": "plus", "windows": [window("5h", 12, 4.6), window("Weekly", 27, 70)],
-                        "reset_credits": {"count": 0, "expires": []}},
+                        "reset_credits": {"count": 0, "credits": []}},
     ("claude", "system"): {"status": "ok", "plan": "Max 20x", "windows": [window("5h", 100, 3.1), window("Weekly", 76, 94)]},
     ("antigravity", "system"): {"status": "ok", "plan": None, "windows": [window("Gemini · 5h", 41, 2.9), window("Gemini · Weekly", 23, 150),
                                                                           window("Claude and GPT · 5h", 0, 4.9), window("Claude and GPT · Weekly", 5, 151)]},
@@ -93,10 +93,12 @@ def main():
     app.fan.draw(None, cairo.Context(fan))
     bubble = cairo.ImageSurface(cairo.FORMAT_ARGB32, widget.Bubble.SIZE, widget.Bubble.SIZE)
     widget.draw_orb(cairo.Context(bubble), widget.Bubble.SIZE, 0, widget.load_orb(widget.Bubble.SIZE))
-    surface, context = background(size, 250)
-    context.set_source_surface(fan, 0, -20)
+    # 오브 중심을 (210, 190) 에 두고 420x250 으로 자른다.
+    left, top = 210 - widget.Fan.HALF, 190 - widget.Fan.HALF
+    surface, context = background(420, 250)
+    context.set_source_surface(fan, left, top)
     context.paint()
-    context.set_source_surface(bubble, widget.Fan.HALF - widget.Bubble.SIZE / 2, widget.Fan.HALF - widget.Bubble.SIZE / 2 - 20)
+    context.set_source_surface(bubble, left + widget.Fan.HALF - widget.Bubble.SIZE / 2, top + widget.Fan.HALF - widget.Bubble.SIZE / 2)
     context.paint()
     surface.write_to_png(str(OUT / "fan.png"))
 

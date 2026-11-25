@@ -18,12 +18,16 @@ class ParsingTest(unittest.TestCase):
 
     def test_reset_credits_rejects_count_mismatch(self):
         with self.assertRaises(RuntimeError):
-            providers.parse_reset_credits({"available_count": 2, "credits": [{"status": "available", "expires_at": "2026-12-02T16:52:33Z"}]})
-        parsed = providers.parse_reset_credits({"available_count": 2, "credits": [
-            {"status": "available", "expires_at": "2026-12-02T16:52:33Z"}, {"status": "used", "expires_at": None},
-            {"status": "available", "expires_at": "2026-11-30T20:48:02Z"}]})
-        self.assertEqual(parsed["count"], 2)
-        self.assertEqual([expiry.day for expiry in parsed["expires"]], [30, 2])
+            providers.parse_reset_credits({"available_count": 2, "credits": [{"id": "a", "status": "available", "expires_at": "2026-12-02T16:52:33Z"}]})
+
+    def test_reset_credits_keep_ids_soonest_first(self):
+        parsed = providers.parse_reset_credits({"available_count": 3, "credits": [
+            {"id": "late", "status": "available", "expires_at": "2026-12-02T16:52:33Z"}, {"id": "used", "status": "used", "expires_at": None},
+            {"id": "never", "status": "available", "expires_at": None},
+            {"id": "soon", "status": "available", "expires_at": "2026-11-30T20:48:02Z"}]})
+        self.assertEqual(parsed["count"], 3)
+        self.assertEqual([credit["id"] for credit in parsed["credits"]], ["soon", "late", "never"])
+        self.assertEqual(parsed["credits"][0]["expires"].day, 30)
 
     def test_image_headers(self):
         window = providers.parse_image_headers({"x-codex-active-limit": "imagegen_premium", "x-codex-primary-window-minutes": "1440",

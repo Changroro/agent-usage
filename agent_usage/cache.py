@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 # 저장 형식이 바뀌면 올린다. 다른 버전의 캐시는 버리고 새로 조회한다.
-VERSION = 2
+VERSION = 3
 CACHE_PATH = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "agent-usage" / "reports.json"
 
 

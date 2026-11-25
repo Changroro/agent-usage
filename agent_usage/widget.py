@@ -1,4 +1,5 @@
 import colorsys
+import functools
 import math
 import signal
 
@@ -25,7 +26,7 @@ ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
 AUTOSTART = Path.home() / ".config" / "autostart" / "agent-usage.desktop"
 REFRESH_CHOICES = (2, 5, 10, 15, 30)
 DEFAULT_SETTINGS = {"refresh_minutes": 5, "display": "used", "agents": ["codex", "claude", "antigravity"], "indicators": True, "language": "system",
-                    "alerts": False, "alert_threshold": 90}
+                    "alerts": False, "alert_threshold": 90, "all_accounts": False}
 TWEEN_SECONDS = 0.5
 ORB_FPS = 30
 REVEAL_MS = 220
@@ -110,6 +111,10 @@ def countdown(moment, compact=False):
     else:
         parts = [f"{days}일", f"{hours}시간"] if days else [f"{hours}시간", f"{minutes}분"] if hours else [f"{minutes}분"]
     return " ".join(parts)
+
+
+def expiry_text(credit):
+    return credit["expires"].astimezone().strftime("%m-%d %H:%M") if credit["expires"] else t("만료 없음")
 
 
 def plan_label(plan):
@@ -433,7 +438,41 @@ class Bubble(Gtk.Window):
         return menu
 
 
-def fan_angles(bubble_center, area, radius=80, item=(32, 62, 22), count=3, spread=54):
+def items_clear(points, item):
+    """부채꼴 항목끼리 겹치지 않는가. 항목은 위쪽 이름표(사각형)와 아래 동그라미(반지름 below)다."""
+    half, above, below = item
+
+    def pill(x, y):
+        return x - half, y - above, x + half, y - below - 6
+
+    for index, (x1, y1) in enumerate(points):
+        for x2, y2 in points[index + 1:]:
+            if math.dist((x1, y1), (x2, y2)) < 2 * below:
+                return False
+            if abs(x1 - x2) < 2 * half and abs(y1 - y2) < above - below - 6:
+                return False
+            for (px, py), (cx, cy) in (((x1, y1), (x2, y2)), ((x2, y2), (x1, y1))):
+                left, top, right, bottom = pill(px, py)
+                if math.dist((cx, cy), (min(max(cx, left), right), min(max(cy, top), bottom))) < below:
+                    return False
+    return True
+
+
+@functools.lru_cache(maxsize=64)
+def fan_layout(bubble_center, area, item, count, radius=80, limit=238, spread=54):
+    """(반지름, 각도 목록). 항목이 많으면 간격을 360/count 까지 좁혀 오브를 둘러싼다. 겹치거나 작업 영역을 벗어나면
+    먼저 그 모양 그대로 반지름을 limit 까지 키워 보고, 그래도 안 되면(구석 등) 간격을 좁혀 가며 찾는다."""
+    preferred = min(spread, 360 / max(count, 1))
+    sizes = range(radius, limit + 1, 4)
+    candidates = [(size, preferred) for size in sizes] + [(size, angle) for size in sizes for angle in range(int(preferred) - 2, 9, -2)]
+    for size, angle in candidates:
+        found = fan_angles(bubble_center, area, size, item, count, angle, fallback=False)
+        if found:
+            return size, found
+    return limit, fan_angles(bubble_center, area, limit, item, count, preferred)
+
+
+def fan_angles(bubble_center, area, radius=80, item=(32, 62, 22), count=3, spread=54, fallback=True):
     """부채꼴 항목 각도(라디안, 수학 좌표). 위(아래쪽이 좁으면 아래)로 펼치고, 항목이 작업 영역 밖으로
     나가면 화면 가운데 쪽으로 필요한 만큼만 돌린다. item 은 (반너비, 위 여유, 아래 여유)다."""
     x, y = bubble_center
@@ -447,25 +486,25 @@ def fan_angles(bubble_center, area, radius=80, item=(32, 62, 22), count=3, sprea
         return [base + math.radians(((count - 1) / 2 - index) * spread) for index in range(count)]
 
     def fits(angles):
-        for angle in angles:
-            item_x, item_y = x + radius * math.cos(angle), y - radius * math.sin(angle)
+        points = [(x + radius * math.cos(angle), y - radius * math.sin(angle)) for angle in angles]
+        for item_x, item_y in points:
             if item_x - half_width < area_x or item_x + half_width > area_x + area_width:
                 return False
             if item_y - above < area_y or item_y + below > area_y + area_height:
                 return False
-        return True
+        return items_clear(points, item)
 
     for step in range(21):
         angles = spread_from(vertical + turn * step / 20)
         if fits(angles):
             return angles
-    return spread_from(toward)
+    return spread_from(toward) if fallback else None
 
 
 class Fan(Gtk.Window):
     RADIUS = 80
     DISC = 22
-    HALF = 210
+    HALF = 300
     PILL = (64, 34)
 
     def __init__(self, app):
@@ -485,17 +524,19 @@ class Fan(Gtk.Window):
         self.connect("button-release-event", self.release)
 
     def positions(self, progress=1.0):
+        """(provider, account, 번호, x, y, 나타난 정도) 목록. 번호는 계정이 여럿일 때 배지에 쓰고 아니면 None 이다."""
         center_x, center_y = self.app.bubble.center()
         area = self.app.workarea_at(center_x, center_y)
-        visible = self.app.visible_providers()
-        angles = fan_angles((center_x, center_y), (area.x, area.y, area.width, area.height), self.RADIUS,
-                            (self.PILL[0] / 2, self.DISC + self.PILL[1] + 6, self.DISC), len(visible))
-        result = {}
-        for index, (provider, angle) in enumerate(zip(visible, angles)):
-            # 항목마다 조금씩 늦게 나오게 한다.
-            local = min(1.0, max(0.0, progress * 1.3 - index * 0.15))
+        items = self.app.fan_items()
+        above = self.DISC + self.PILL[1] + 6
+        radius, angles = fan_layout((center_x, center_y), (area.x, area.y, area.width, area.height), (self.PILL[0] / 2, above, self.DISC),
+                                    len(items), self.RADIUS, self.HALF - above)
+        result = []
+        for index, ((provider, account, number), angle) in enumerate(zip(items, angles)):
+            # 항목마다 조금씩 늦게 나오게 한다. 항목이 많아도 전체 시간이 늘지 않게 간격을 줄인다.
+            local = min(1.0, max(0.0, progress * 1.3 - index * 0.45 / max(len(items), 3)))
             eased = 1 - (1 - local) ** 3
-            result[provider] = (self.HALF + self.RADIUS * eased * math.cos(angle), self.HALF - self.RADIUS * eased * math.sin(angle), eased)
+            result.append((provider, account, number, self.HALF + radius * eased * math.cos(angle), self.HALF - radius * eased * math.sin(angle), eased))
         return result
 
     def hit_rect(self, x, y):
@@ -513,7 +554,7 @@ class Fan(Gtk.Window):
     def follow(self):
         center_x, center_y = self.app.bubble.center()
         self.move(int(center_x - self.HALF), int(center_y - self.HALF))
-        region = cairo.Region([cairo.RectangleInt(*self.hit_rect(x, y)) for x, y, _ in self.positions().values()])
+        region = cairo.Region([cairo.RectangleInt(*self.hit_rect(x, y)) for *_item, x, y, _ in self.positions()])
         self.input_shape_combine_region(region)
         self.queue_draw()
 
@@ -565,13 +606,14 @@ class Fan(Gtk.Window):
         context.paint()
         context.set_operator(cairo.OPERATOR_OVER)
         scale = self.get_scale_factor()
-        for provider, (x, y, appear) in self.positions(self.progress).items():
+        for provider, account, number, x, y, appear in self.positions(self.progress):
             if appear <= 0:
                 continue
             context.push_group()
-            used, reset = self.app.fan_values(provider)
+            used, reset, image = self.app.fan_values(account)
+            key = (provider, account and account["id"])
             if used is not None:
-                tween = self.tweens.setdefault(provider, Tween(used, lambda _value: self.queue_draw()))
+                tween = self.tweens.setdefault(key, Tween(used, lambda _value: self.queue_draw()))
                 tween.to(used)
                 used = tween.value
             # 글자를 그린 뒤 남은 현재 점에서 arc 가 선을 이어 그리지 않게 경로를 비운다.
@@ -590,12 +632,32 @@ class Fan(Gtk.Window):
                 context.arc(x, y, self.DISC - 3, -math.pi / 2, -math.pi / 2 + 2 * math.pi * display_value(used) / 100)
                 context.set_source_rgb(*used_color(used))
                 context.stroke()
+            if image is not None:
+                # Codex 이미지 한도. 아이콘(반지름 10)에 닿지 않게 안쪽에 얇게 그린다.
+                context.new_path()
+                context.set_line_width(2)
+                context.arc(x, y, self.DISC - 8, 0, 2 * math.pi)
+                context.set_source_rgba(1, 1, 1, 0.1)
+                context.stroke()
+                context.arc(x, y, self.DISC - 8, -math.pi / 2, -math.pi / 2 + 2 * math.pi * display_value(image) / 100)
+                context.set_source_rgb(*used_color(image))
+                context.stroke()
             context.save()
             context.translate(x - 10, y - 10)
             context.scale(1 / scale, 1 / scale)
             Gdk.cairo_set_source_pixbuf(context, self.icon(provider, scale), 0, 0)
             context.paint()
             context.restore()
+            if number is not None:
+                badge_x, badge_y = x + self.DISC * 0.72, y + self.DISC * 0.72
+                context.new_path()
+                context.arc(badge_x, badge_y, 7.5, 0, 2 * math.pi)
+                context.set_source_rgb(0.25, 0.25, 0.25)
+                context.fill_preserve()
+                context.set_source_rgba(1, 1, 1, 0.35)
+                context.set_line_width(1)
+                context.stroke()
+                self.text(context, badge_x, badge_y - 7, str(number), "Sans Bold 7.5", (1, 1, 1, 1))
             width, height = self.PILL
             left, top = x - width / 2, y - self.DISC - height - 6
             context.new_sub_path()
@@ -616,16 +678,16 @@ class Fan(Gtk.Window):
         # 끄는 중에는 get_position 이 늦어서 동그라미 중심에서 계산한다.
         center_x, center_y = self.app.bubble.center()
         rects = [(center_x - self.HALF + left, center_y - self.HALF + top, width, height)
-                 for left, top, width, height in (self.hit_rect(x, y) for x, y, _ in self.positions().values())]
+                 for left, top, width, height in (self.hit_rect(x, y) for *_item, x, y, _ in self.positions())]
         rects.append(self.app.bubble.anchor())
         left, top = min(r[0] for r in rects), min(r[1] for r in rects)
         return left, top, max(r[0] + r[2] for r in rects) - left, max(r[1] + r[3] for r in rects) - top
 
     def release(self, _widget, event):
-        for provider, (x, y, _) in self.positions().items():
+        for provider, account, _number, x, y, _ in self.positions():
             left, top, width, height = self.hit_rect(x, y)
             if left <= event.x <= left + width and top <= event.y <= top + height:
-                self.app.open_agent(provider)
+                self.app.open_agent(provider, account)
 
 
 class App:
@@ -864,8 +926,21 @@ class App:
         self.expanded = set(self.visible_providers())
         self.show_panel(source=self.fan.anchor if self.fan.opened else self.bubble.anchor)
 
-    def open_agent(self, provider):
-        if self.window.get_visible() and not self.closing and self.expanded == {provider}:
+    def fan_items(self):
+        """부채꼴 항목 (provider, account, 배지 번호). 모든 계정 표시를 켜면 계정마다 하나씩 나온다."""
+        if not self.settings["all_accounts"]:
+            return [(provider, self.selected(provider), None) for provider in self.visible_providers()]
+        items = []
+        for provider in self.visible_providers():
+            found = self.provider_accounts(provider)
+            items += [(provider, account, index if len(found) > 1 else None) for index, account in enumerate(found, 1)] or [(provider, None, None)]
+        return items
+
+    def open_agent(self, provider, account=None):
+        if account and account["id"] != self.selected(provider)["id"]:
+            self.state["selected"][provider] = account["id"]
+            accounts.save_state(self.state)
+        elif self.window.get_visible() and not self.closing and self.expanded == {provider}:
             self.close_panel()
             return
         self.expanded = {provider}
@@ -876,17 +951,18 @@ class App:
             self.anchor = self.anchor_source()
             self.place()
 
-    def fan_values(self, provider):
-        account = self.selected(provider)
+    def fan_values(self, account):
+        """(헤드라인 사용률, 이름표 아랫줄, 이미지 한도 사용률)."""
         report = self.reports.get(self.key(account)) if account else None
         if report is None:
-            return None, "···"
+            return None, "···", None
         if report["status"] != "ok":
-            return None, status_text(report)
+            return None, status_text(report), None
         top = headline(report)
         reset = countdown(top["reset_at"], compact=True)
+        image = report["image"]["used"] if report.get("image") else None
         # 이름표는 64px 라 영어는 "Weekly" 대신 "W" 로 줄인다.
-        return top["used"], t("주간 {v0}", v0=reset) if weekly(top) else reset
+        return top["used"], t("주간 {v0}", v0=reset) if weekly(top) else reset, image
 
     def slide(self, opening):
         # 투명도와 위치를 함께 바꿔 동그라미(또는 상단바) 쪽에서 밀려 나오는 것처럼 보이게 한다.
@@ -1139,26 +1215,26 @@ class App:
         tickets.pack_start(Tickets(credits["count"]), False, False, 0)
         tickets.pack_start(label(f"×{credits['count']}", "title" if credits["count"] else "muted"), False, False, 0)
         opened = self.key(account) in self.ticket_lists
-        if credits["expires"]:
+        if credits["credits"]:
             tickets.pack_start(Gtk.Image.new_from_icon_name("pan-up-symbolic" if opened else "pan-down-symbolic", Gtk.IconSize.MENU), False, False, 0)
             text = clickable(tickets, lambda: self.toggle_tickets(account), horizontal=4, vertical=2)
             text.set_halign(Gtk.Align.START)
         else:
             text = tickets
         row.pack_start(text, True, True, 0)
-        if credits["count"]:
-            button = Gtk.Button(label=t("지금 재설정"))
-            button.get_style_context().add_class("pill")
-            button.set_valign(Gtk.Align.CENTER)
-            button.connect("clicked", lambda *_args: self.consume(account))
-            row.pack_end(button, False, False, 0)
         box.pack_start(row, False, False, 0)
         if opened:
-            for index, expiry in enumerate(credits["expires"], 1):
+            for index, credit in enumerate(credits["credits"], 1):
                 line = Gtk.Box(spacing=8, margin_start=6)
                 line.pack_start(label(f"{index}", "muted", "tiny"), False, False, 0)
-                line.pack_start(label(expiry.astimezone().strftime("%m-%d %H:%M"), "small"), False, False, 0)
-                line.pack_end(label(t("{v0} 후 만료됨", v0=countdown(expiry, compact=True)), "muted", "tiny"), False, False, 0)
+                line.pack_start(label(expiry_text(credit), "small"), False, False, 0)
+                use = Gtk.Button(label=t("사용"))
+                use.get_style_context().add_class("pill")
+                use.set_valign(Gtk.Align.CENTER)
+                use.connect("clicked", lambda *_args, credit=credit: self.consume(account, credit))
+                line.pack_end(use, False, False, 0)
+                if credit["expires"]:
+                    line.pack_end(label(t("{v0} 후 만료됨", v0=countdown(credit["expires"], compact=True)), "muted", "tiny"), False, False, 0)
                 box.pack_start(line, False, False, 0)
         return box
 
@@ -1166,10 +1242,10 @@ class App:
         self.ticket_lists ^= {self.key(account)}
         GLib.idle_add(self.render)
 
-    def consume(self, account):
+    def consume(self, account, credit):
         dialog = Gtk.MessageDialog(transient_for=self.window, modal=True, message_type=Gtk.MessageType.WARNING, buttons=Gtk.ButtonsType.NONE,
                                    text=t("리셋권 1회를 사용해 Codex 사용량을 초기화할까요?"))
-        dialog.format_secondary_text(t("{v0} · 되돌릴 수 없습니다.", v0=account["label"]))
+        dialog.format_secondary_text(t("{v0} · 되돌릴 수 없습니다.", v0=f"{account['label']} · {expiry_text(credit)}"))
         dialog.add_button(t("취소"), Gtk.ResponseType.CANCEL)
         dialog.add_button(t("리셋권 사용"), Gtk.ResponseType.ACCEPT).get_style_context().add_class("destructive-action")
         # 엔터·스페이스로 바로 통과되지 않게 기본 선택은 취소다.
@@ -1182,7 +1258,7 @@ class App:
 
         def work():
             try:
-                code = providers.consume_reset_credit(account)
+                code = providers.consume_reset_credit(account, credit["id"])
             except Exception as error:
                 code = str(error)
             GLib.idle_add(self.notify, t("재설정 결과: {v0}", v0=code))
@@ -1287,6 +1363,7 @@ class App:
         outer.pack_start(self.choice_row(t("언어"), "language", (("system", t("시스템")), ("ko", "한국어"), ("en", "English"))), False, False, 0)
         outer.pack_start(self.choice_row(t("사용량 표시"), "display", (("used", t("사용률")), ("remaining", t("남은 양")))), False, False, 0)
         outer.pack_start(self.switch_row(t("상단바 아이콘"), self.settings["indicators"], lambda on: self.change("indicators", on)), False, False, 0)
+        outer.pack_start(self.switch_row(t("모든 계정 표시"), self.settings["all_accounts"], lambda on: self.change("all_accounts", on)), False, False, 0)
         outer.pack_start(self.separator(), False, False, 0)
         outer.pack_start(label(t("동작"), "title"), False, False, 0)
         outer.pack_start(self.choice_row(t("갱신 주기"), "refresh_minutes", tuple((minutes, t("{v0}분", v0=minutes)) for minutes in REFRESH_CHOICES)), False, False, 0)

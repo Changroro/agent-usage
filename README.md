@@ -17,18 +17,19 @@ A floating desktop widget for Linux that shows how much of your AI coding agent 
 - A floating energy orb that stays on top, slowly turning while its colors drift. Click it to fan out one bubble per agent with its usage and time to reset.
 - Click an agent bubble for its detail panel with every usage window and the plan name.
 - Several accounts per agent. Add or sign in again from the panel, and the sign-in page opens in your browser.
+- Turn on *Show all accounts* in settings to get one numbered bubble per account. Many bubbles wrap around the orb, and in a screen corner they spread out within the space left.
 - Top bar indicators with the current usage of each agent.
 - The bubbles and the top bar show the shortest limit (usually 5 hours) first. When it runs out, or when the weekly limit runs out, they switch to the weekly limit, marked with `W`.
 - Polls every 5 minutes by default. The last values are cached, so they show right away after a restart. When a usage API rate-limits you, the widget waits 5 to 30 minutes and keeps showing the last value.
 - Optional desktop alerts, off by default: when a limit crosses the threshold you set with a slider (50–100%), when it runs out, and when it resets. Each alert fires once per limit until it resets.
-- Settings for language, used or remaining display, top bar icons, refresh interval, start on login, alerts and which agents to show.
+- Settings for language, used or remaining display, top bar icons, showing all accounts, refresh interval, start on login, alerts and which agents to show.
 - Values fill in smoothly when they change, and rows slide open.
 
 **Codex**
 
 - 5-hour and weekly limits, plus any extra per-model limits on the account.
-- Rate limit reset credits: the count, each ticket's expiry date, and *Reset now*. **Reset now uses a real credit**, so it asks first with Cancel as the default.
-- The 24-hour image generation limit.
+- Rate limit reset credits: the count, and each credit's expiry date with a *Use* button, soonest first, so you pick which one to spend. **Use spends that credit for real**, so it asks first with Cancel as the default.
+- The 24-hour image generation limit, also shown as a thin inner ring in the bubble.
 
 **Claude**
 

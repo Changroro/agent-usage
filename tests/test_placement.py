@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 import math
 
-from agent_usage.widget import fan_angles, panel_origin
+from agent_usage.widget import fan_angles, fan_layout, items_clear, panel_origin
 
 AREA = (3840, 20, 1920, 1040)
 
@@ -42,6 +42,34 @@ class PlacementTest(unittest.TestCase):
 
     def test_fan_opens_downward_near_top(self):
         self.assertEqual(round(math.degrees(fan_angles((4800, 60), AREA)[1])), -90)
+
+    def assert_fan_fits(self, center, count):
+        radius, angles = fan_layout(center, AREA, (32, 62, 22), count)
+        points = [(center[0] + radius * math.cos(angle), center[1] - radius * math.sin(angle)) for angle in angles]
+        for x, y in points:
+            self.assertGreaterEqual(x - 32, AREA[0])
+            self.assertLessEqual(x + 32, AREA[0] + AREA[2])
+            self.assertGreaterEqual(y - 62, AREA[1])
+            self.assertLessEqual(y + 22, AREA[1] + AREA[3])
+        self.assertTrue(items_clear(points, (32, 62, 22)))
+        self.assertLessEqual(radius, 238)
+        return radius, angles
+
+    def test_three_agents_keep_original_fan(self):
+        self.assertEqual(fan_layout((4800, 1000), AREA, (32, 62, 22), 3), (80, fan_angles((4800, 1000), AREA)))
+
+    def test_overlapping_items_are_detected(self):
+        self.assertFalse(items_clear([(0, 0), (40, 0)], (32, 62, 22)))
+        self.assertFalse(items_clear([(0, 0), (0, 60)], (32, 62, 22)))
+        self.assertTrue(items_clear([(0, 0), (70, 0)], (32, 62, 22)))
+
+    def test_many_accounts_surround_orb_in_open_space(self):
+        _radius, angles = self.assert_fan_fits((4800, 500), 7)
+        self.assertGreater(max(angles) - min(angles), math.radians(300))
+
+    def test_many_accounts_fit_in_corner(self):
+        for count in (2, 3, 4, 5):
+            self.assert_fan_fits((5708, 1008), count)
 
 if __name__ == "__main__":
     unittest.main()

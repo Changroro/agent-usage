@@ -114,10 +114,11 @@ def parse_reset_credits(payload):
     credits = payload.get("credits")
     if not isinstance(count, int) or not isinstance(credits, list):
         raise RuntimeError(t("Codex 리셋권 응답 형식이 올바르지 않습니다."))
-    expiries = sorted(from_iso(credit["expires_at"]) for credit in credits if credit.get("status") == "available")
-    if len(expiries) != count:
+    available = [{"id": credit["id"], "expires": from_iso(credit.get("expires_at"))} for credit in credits if credit.get("status") == "available"]
+    if len(available) != count:
         raise RuntimeError(t("Codex 리셋권 수와 만기일 수가 일치하지 않습니다."))
-    return {"count": count, "expires": expiries}
+    # Codex CLI 처럼 만료가 빠른 순, 만료일이 없는 것은 맨 뒤.
+    return {"count": count, "credits": sorted(available, key=lambda credit: (credit["expires"] is None, credit["expires"] or now()))}
 
 
 def parse_image_headers(headers):
@@ -169,7 +170,7 @@ def fetch_codex(account):
         headers = codex_headers(home)
         usage, _ = http_json(f"{WHAM}/usage", headers)
     report = parse_codex_usage(usage)
-    report["reset_credits"] = {"count": 0, "expires": []}
+    report["reset_credits"] = {"count": 0, "credits": []}
     if report.pop("reset_count"):
         report["reset_credits"] = parse_reset_credits(http_json(f"{WHAM}/rate-limit-reset-credits", headers)[0])
     try:
@@ -179,9 +180,9 @@ def fetch_codex(account):
     return report
 
 
-def consume_reset_credit(account):
+def consume_reset_credit(account, credit_id):
     payload, _ = http_json(f"{WHAM}/rate-limit-reset-credits/consume", {**codex_headers(account["home"]), "Content-Type": "application/json"},
-                           data=json.dumps({"redeem_request_id": str(uuid.uuid4())}).encode(), method="POST")
+                           data=json.dumps({"redeem_request_id": str(uuid.uuid4()), "credit_id": credit_id}).encode(), method="POST")
     return payload.get("code")
 
 
